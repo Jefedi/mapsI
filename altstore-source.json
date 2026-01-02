@@ -1,35 +1,32 @@
 {
-    "name": "MapsI Source",
-    "subtitle": "GPS Navigation open source",
-    "description": "Source for MapsI - GPS navigation app using OpenStreetMap.",
-    "website": "https://github.com/Jefedi/mapsI",
-    "tintColor": "#4CAF50",
-    "apps": [
+  "name": "MapsI Source",
+  "identifier": "com.jefedi.mapsi",
+  "apps": [
+    {
+      "name": "MapsI",
+      "bundleIdentifier": "com.mapsi.navigation",
+      "developerName": "Jefedi",
+      "subtitle": "GPS Navigation with OpenStreetMap",
+      "localizedDescription": "MapsI is a GPS navigation app alternative to Apple Maps, Waze and Google Maps.",
+      "iconURL": "https://raw.githubusercontent.com/Jefedi/mapsI/main/icon.png",
+      "tintColor": "#4CAF50",
+      "version": "1.0",
+      "versionDate": "2026-01-02",
+      "versionDescription": "Initial release.",
+      "downloadURL": "https://github.com/Jefedi/mapsI/releases/download/V1/MapsI-unsigned.ipa",
+      "size": 5000000,
+      "versions": [
         {
-            "name": "MapsI",
-            "bundleIdentifier": "com.mapsi.navigation",
-            "developerName": "Jefedi",
-            "subtitle": "GPS Navigation with OpenStreetMap",
-            "localizedDescription": "MapsI is a GPS navigation app alternative to Apple Maps, Waze and Google Maps.",
-            "iconURL": "https://raw.githubusercontent.com/Jefedi/mapsI/main/MapsI/Assets.xcassets/AppIcon.appiconset/icon-1024.png",
-            "tintColor": "#4CAF50",
-            "versions": [
-                {
-                    "version": "1.0",
-                    "date": "2026-01-02",
-                    "size": 5000000,
-                    "downloadURL": "https://github.com/Jefedi/mapsI/releases/download/V1/MapsI-unsigned.ipa",
-                    "localizedDescription": "Initial release.",
-                    "minOSVersion": "16.0"
-                }
-            ],
-            "appPermissions": {
-                "entitlements": [],
-                "privacy": {
-                    "NSLocationWhenInUseUsageDescription": "MapsI uses your location to display your position on the map."
-                }
-            }
+          "version": "1.0",
+          "date": "2026-01-02",
+          "size": 5000000,
+          "downloadURL": "https://github.com/Jefedi/mapsI/releases/download/V1/MapsI-unsigned.ipa",
+          "localizedDescription": "Initial release.",
+          "minOSVersion": "16.0"
         }
-    ],
-    "news": []
+      ]
+    }
+  ],
+  "news": [],
+  "userInfo": {}
 }
