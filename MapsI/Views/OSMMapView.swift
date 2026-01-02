@@ -6,7 +6,7 @@ import WebKit
 struct OSMMapView: UIViewRepresentable {
     @Binding var centerCoordinate: CLLocationCoordinate2D
     @Binding var zoomLevel: Double
-    var annotations: [MapAnnotation]
+    var annotations: [MapMarker]
     var routeCoordinates: [CLLocationCoordinate2D]
     var onMapTap: ((CLLocationCoordinate2D) -> Void)?
 
