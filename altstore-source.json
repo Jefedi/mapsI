@@ -4,7 +4,6 @@
   "apiVersion": "v2",
   "subtitle": "GPS Navigation with OpenStreetMap",
   "description": "MapsI is a GPS navigation app alternative to Apple Maps, Waze and Google Maps.",
-  "iconURL": "https://raw.githubusercontent.com/Jefedi/mapsI/main/icon.png",
   "website": "https://github.com/Jefedi/mapsI",
   "tintColor": "4CAF50",
   "apps": [
@@ -13,7 +12,6 @@
       "bundleIdentifier": "com.mapsi.navigation",
       "developerName": "Jefedi",
       "localizedDescription": "MapsI is a GPS navigation app alternative to Apple Maps, Waze and Google Maps. Features include address search, GPS navigation with voice guidance, 4 transport modes, and OpenStreetMap maps.",
-      "iconURL": "https://raw.githubusercontent.com/Jefedi/mapsI/main/icon.png",
       "tintColor": "4CAF50",
       "versions": [
         {
