@@ -1,0 +1,79 @@
+name: Build iOS App
+
+on:
+  push:
+    branches: [ main, master, 'claude/*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Permet de lancer manuellement
+
+jobs:
+  build:
+    name: Build IPA
+    runs-on: macos-14  # macOS Sonoma avec Xcode 15
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Select Xcode version
+      run: sudo xcode-select -s /Applications/Xcode_15.2.app/Contents/Developer
+
+    - name: Show Xcode version
+      run: xcodebuild -version
+
+    - name: Install CocoaPods (if needed)
+      run: |
+        if [ -f "Podfile" ]; then
+          gem install cocoapods
+          pod install
+        fi
+
+    - name: Build app (without signing)
+      run: |
+        xcodebuild clean build \
+          -project MapsI.xcodeproj \
+          -scheme MapsI \
+          -configuration Release \
+          -destination "generic/platform=iOS" \
+          -derivedDataPath build/DerivedData \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO \
+          ONLY_ACTIVE_ARCH=NO
+
+    - name: Create IPA
+      run: |
+        # Trouver le .app
+        APP_PATH=$(find build/DerivedData -name "*.app" -type d | head -1)
+        echo "App found at: $APP_PATH"
+
+        if [ -z "$APP_PATH" ]; then
+          echo "Error: No .app found"
+          exit 1
+        fi
+
+        # Creer le dossier Payload et l'IPA
+        mkdir -p build/Payload
+        cp -r "$APP_PATH" build/Payload/
+
+        cd build
+        zip -r MapsI-unsigned.ipa Payload
+
+        echo "IPA created: build/MapsI-unsigned.ipa"
+        ls -la MapsI-unsigned.ipa
+
+    - name: Upload IPA artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: MapsI-iOS-App
+        path: build/MapsI-unsigned.ipa
+        retention-days: 30
+
+    - name: Create Release (on tag)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: build/MapsI-unsigned.ipa
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

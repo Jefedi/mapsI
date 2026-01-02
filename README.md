@@ -23,51 +23,68 @@ MapsI est une application de navigation GPS pour iOS, alternative open source a 
 Cette application utilise les donnees OpenStreetMap.
 (C) OpenStreetMap contributors - [License](https://www.openstreetmap.org/copyright)
 
+## Telecharger l'IPA (sans Mac)
+
+L'application est compilee automatiquement par GitHub Actions. **Aucun Mac requis !**
+
+### Methode 1 : Telechargement automatique (recommande)
+
+1. Allez dans l'onglet **Actions** du repository GitHub
+2. Cliquez sur le dernier workflow **"Build iOS App"** reussi (coche verte)
+3. En bas de la page, telechargez l'artifact **"MapsI-iOS-App"**
+4. Dezippez pour obtenir le fichier `MapsI-unsigned.ipa`
+
+### Methode 2 : Lancer le build manuellement
+
+1. Allez dans **Actions** > **Build iOS App**
+2. Cliquez sur **"Run workflow"** (bouton a droite)
+3. Attendez que le build se termine (~5 minutes)
+4. Telechargez l'IPA depuis les artifacts
+
 ## Installation via AltStore
 
 ### Prerequis
 
-1. Un Mac ou PC Windows
+1. Un PC Windows ou Mac (pour AltServer)
 2. [AltServer](https://altstore.io) installe sur votre ordinateur
 3. [AltStore](https://altstore.io) installe sur votre iPhone/iPad
-4. Xcode 15+ installe sur Mac (pour la compilation)
 
-### Compilation et Export IPA
+### Installer l'IPA sur iPhone
 
-1. **Ouvrir le projet dans Xcode** :
-   ```bash
-   open MapsI.xcodeproj
-   ```
+1. **Telecharger l'IPA** depuis GitHub Actions (voir ci-dessus)
 
-2. **Configurer le signing** :
-   - Ouvrir les parametres du projet
-   - Aller dans "Signing & Capabilities"
-   - Selectionner "Automatically manage signing"
-   - Choisir votre Team (compte Apple Developer ou personnel)
+2. **Installer AltStore** sur votre iPhone :
+   - Lancez AltServer sur votre PC/Mac
+   - Connectez votre iPhone en USB
+   - Installez AltStore via le menu AltServer
 
-3. **Archiver l'application** :
-   - Menu Product > Archive
-   - Attendre la fin de la compilation
+3. **Installer MapsI** :
+   - Ouvrez AltStore sur votre iPhone
+   - Allez dans "My Apps" > "+"
+   - Selectionnez le fichier `MapsI-unsigned.ipa`
+   - AltStore signera et installera l'app
 
-4. **Exporter l'IPA** :
-   - Dans l'Organizer, selectionner l'archive
-   - Cliquer sur "Distribute App"
-   - Choisir "Development" pour AltStore
-   - Exporter et sauvegarder le fichier .ipa
+**Note** : Avec un compte Apple gratuit, l'app doit etre re-signee tous les 7 jours via AltStore.
 
-5. **Installer via AltStore** :
-   - Ouvrir AltStore sur votre iPhone
-   - Aller dans "My Apps"
-   - Appuyer sur "+" et selectionner le fichier IPA
-   - L'application s'installera automatiquement
+---
+
+<details>
+<summary>Compilation manuelle (si vous avez un Mac)</summary>
 
 ### Script de Build Automatise
-
-Utilisez le script fourni pour automatiser la compilation :
 
 ```bash
 ./scripts/build-ipa.sh
 ```
+
+### Compilation avec Xcode
+
+1. Ouvrir `MapsI.xcodeproj` dans Xcode
+2. Configurer le signing dans Project Settings
+3. Product > Archive
+4. Distribute App > Development > Export IPA
+
+</details>
 
 ## Structure du Projet
 
