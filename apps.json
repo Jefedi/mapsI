@@ -1,0 +1,36 @@
+{
+  "name": "MapsI",
+  "identifier": "com.jefedi.mapsi.source",
+  "apiVersion": "v2",
+  "apps": [
+    {
+      "name": "MapsI",
+      "bundleIdentifier": "com.mapsi.navigation",
+      "developerName": "Jefedi",
+      "localizedDescription": "GPS navigation app with OpenStreetMap.",
+      "iconURL": "https://github.com/Jefedi.png",
+      "tintColor": "4CAF50",
+      "appID": "com.mapsi.navigation",
+      "versions": [
+        {
+          "version": "1.0",
+          "date": "2026-01-02",
+          "localizedDescription": "Initial release.",
+          "downloadURL": "https://github.com/Jefedi/mapsI/releases/download/V1/MapsI-unsigned.ipa",
+          "size": 5000000,
+          "minOSVersion": "16.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": [
+          {
+            "name": "LocationWhenInUse",
+            "usageDescription": "MapsI uses your location for navigation."
+          }
+        ]
+      }
+    }
+  ],
+  "news": []
+}
