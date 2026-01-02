@@ -1,0 +1,38 @@
+{
+  "name": "MapsI",
+  "identifier": "com.jefedi.mapsi.source",
+  "apiVersion": "v2",
+  "subtitle": "GPS Navigation with OpenStreetMap",
+  "description": "MapsI is a GPS navigation app.",
+  "iconURL": "https://github.com/Jefedi.png",
+  "website": "https://github.com/Jefedi/mapsI",
+  "tintColor": "#4CAF50",
+  "apps": [
+    {
+      "name": "MapsI",
+      "bundleIdentifier": "com.mapsi.navigation",
+      "developerName": "Jefedi",
+      "localizedDescription": "MapsI is a GPS navigation app alternative to Apple Maps, Waze and Google Maps.",
+      "iconURL": "https://github.com/Jefedi.png",
+      "tintColor": "4CAF50",
+      "screenshotURLs": [
+        "https://github.com/Jefedi.png"
+      ],
+      "versions": [
+        {
+          "version": "1.0",
+          "date": "2026-01-02T12:00:00-05:00",
+          "localizedDescription": "Initial release.",
+          "downloadURL": "https://github.com/Jefedi/mapsI/releases/download/V1/MapsI-unsigned.ipa",
+          "size": 5000000,
+          "minOSVersion": "16.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": []
+      }
+    }
+  ],
+  "news": []
+}
