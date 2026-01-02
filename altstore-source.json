@@ -1,7 +1,7 @@
 {
     "name": "MapsI Source",
-    "subtitle": "Navigation GPS open source",
-    "description": "Source AltStore pour MapsI - Application de navigation GPS utilisant OpenStreetMap.",
+    "subtitle": "GPS Navigation open source",
+    "description": "AltStore source for MapsI - GPS navigation app using OpenStreetMap.",
     "website": "https://github.com/Jefedi/mapsI",
     "tintColor": "#4CAF50",
     "apps": [
@@ -9,33 +9,33 @@
             "name": "MapsI",
             "bundleIdentifier": "com.mapsi.navigation",
             "developerName": "Jefedi",
-            "subtitle": "Navigation GPS avec OpenStreetMap",
-            "localizedDescription": "MapsI est une application de navigation GPS alternative à Apple Plans, Waze et Google Maps.\n\nFonctionnalités:\n- Recherche d'adresses via Nominatim\n- Navigation GPS avec guidage vocal\n- 4 modes de transport: voiture, piéton, vélo, transports en commun\n- Cartes OpenStreetMap\n- 100% gratuit et open source",
+            "subtitle": "GPS Navigation with OpenStreetMap",
+            "localizedDescription": "MapsI is a GPS navigation app alternative to Apple Maps, Waze and Google Maps. Features: Address search, GPS navigation with voice guidance, 4 transport modes (car, walking, cycling, public transit), OpenStreetMap maps, 100% free and open source.",
             "tintColor": "#4CAF50",
             "versions": [
                 {
                     "version": "1.0.0",
-                    "date": "2026-01-02T12:00:00+00:00",
+                    "date": "2026-01-02",
                     "size": 5000000,
                     "downloadURL": "https://github.com/Jefedi/mapsI/releases/download/V1/MapsI-unsigned.ipa",
-                    "localizedDescription": "Version initiale:\n- Recherche d'adresses\n- Navigation GPS\n- 4 modes de transport\n- Guidage vocal",
+                    "localizedDescription": "Initial release with address search, GPS navigation, 4 transport modes, and voice guidance.",
                     "minOSVersion": "16.0"
                 }
             ],
             "appPermissions": {
                 "entitlements": [],
                 "privacy": {
-                    "NSLocationWhenInUseUsageDescription": "MapsI utilise votre position pour afficher votre emplacement sur la carte et calculer les itinéraires.",
-                    "NSLocationAlwaysAndWhenInUseUsageDescription": "MapsI utilise votre position en arrière-plan pour le guidage de navigation."
+                    "NSLocationWhenInUseUsageDescription": "MapsI uses your location to display your position on the map and calculate routes.",
+                    "NSLocationAlwaysAndWhenInUseUsageDescription": "MapsI uses your location in background for navigation guidance."
                 }
             }
         }
     ],
     "news": [
         {
-            "title": "MapsI v1.0.0 disponible!",
+            "title": "MapsI v1.0.0 Available",
             "identifier": "mapsi_v1_release",
-            "caption": "Premiere version de MapsI - Navigation GPS open source",
+            "caption": "First version of MapsI - Open source GPS navigation",
             "date": "2026-01-02",
             "tintColor": "#4CAF50",
             "notify": true,
