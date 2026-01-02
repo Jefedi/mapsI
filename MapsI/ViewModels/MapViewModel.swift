@@ -5,12 +5,12 @@ import MapKit
 
 class MapViewModel: ObservableObject {
     @Published var region: MKCoordinateRegion
-    @Published var mapType: MapType = .standard
+    @Published var mapType: MapDisplayType = .standard
     @Published var showsUserLocation = true
     @Published var userTrackingMode: UserTrackingMode = .follow
-    @Published var annotations: [MapAnnotation] = []
+    @Published var annotations: [MapMarker] = []
     @Published var routeOverlay: [CLLocationCoordinate2D] = []
-    @Published var selectedAnnotation: MapAnnotation?
+    @Published var selectedAnnotation: MapMarker?
     @Published var zoomLevel: Double = 14
 
     private var cancellables = Set<AnyCancellable>()
@@ -91,7 +91,7 @@ class MapViewModel: ObservableObject {
         // Remove existing destination markers
         annotations.removeAll { $0.type == .destination }
 
-        let annotation = MapAnnotation(
+        let annotation = MapMarker(
             id: location.id,
             coordinate: location.coordinate,
             title: location.shortName,
@@ -108,7 +108,7 @@ class MapViewModel: ObservableObject {
         annotations.removeAll { $0.type == .searchResult }
 
         for location in locations {
-            let annotation = MapAnnotation(
+            let annotation = MapMarker(
                 id: location.id,
                 coordinate: location.coordinate,
                 title: location.shortName,
@@ -148,7 +148,7 @@ class MapViewModel: ObservableObject {
 }
 
 // MARK: - Supporting Types
-enum MapType: String, CaseIterable {
+enum MapDisplayType: String, CaseIterable {
     case standard = "Standard"
     case satellite = "Satellite"
     case hybrid = "Hybride"
@@ -165,17 +165,16 @@ enum MapType: String, CaseIterable {
 enum UserTrackingMode {
     case none
     case follow
-    case followWithHeading
 }
 
-struct MapAnnotation: Identifiable {
+struct MapMarker: Identifiable {
     let id: String
     let coordinate: CLLocationCoordinate2D
     let title: String
     let subtitle: String?
-    let type: AnnotationType
+    let type: MarkerType
 
-    enum AnnotationType {
+    enum MarkerType {
         case destination
         case searchResult
         case waypoint

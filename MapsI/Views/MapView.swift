@@ -14,7 +14,7 @@ struct MapView: View {
             annotationItems: mapViewModel.annotations
         ) { annotation in
             MapAnnotation(coordinate: annotation.coordinate) {
-                AnnotationView(annotation: annotation)
+                MarkerView(marker: annotation)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -40,14 +40,12 @@ struct MapView: View {
                 switch mapViewModel.userTrackingMode {
                 case .none: return .none
                 case .follow: return .follow
-                case .followWithHeading: return .followWithHeading
                 }
             },
             set: { newValue in
                 switch newValue {
                 case .none: mapViewModel.userTrackingMode = .none
                 case .follow: mapViewModel.userTrackingMode = .follow
-                case .followWithHeading: mapViewModel.userTrackingMode = .followWithHeading
                 @unknown default: mapViewModel.userTrackingMode = .none
                 }
             }
@@ -55,23 +53,23 @@ struct MapView: View {
     }
 }
 
-// MARK: - Annotation View
-struct AnnotationView: View {
-    let annotation: MapAnnotation
+// MARK: - Marker View
+struct MarkerView: View {
+    let marker: MapMarker
 
     var body: some View {
         VStack(spacing: 0) {
-            Image(systemName: annotation.iconName)
+            Image(systemName: marker.iconName)
                 .font(.title)
-                .foregroundColor(annotationColor)
+                .foregroundColor(markerColor)
                 .background(
                     Circle()
                         .fill(Color.white)
                         .frame(width: 30, height: 30)
                 )
 
-            if annotation.type == .destination {
-                Text(annotation.title)
+            if marker.type == .destination {
+                Text(marker.title)
                     .font(.caption)
                     .fontWeight(.semibold)
                     .padding(.horizontal, 8)
@@ -83,8 +81,8 @@ struct AnnotationView: View {
         }
     }
 
-    private var annotationColor: Color {
-        switch annotation.type {
+    private var markerColor: Color {
+        switch marker.type {
         case .destination: return .red
         case .searchResult: return .blue
         case .waypoint: return .orange

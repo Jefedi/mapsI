@@ -17,7 +17,7 @@ struct SettingsView: View {
                 // Map Section
                 Section(header: Text("Carte")) {
                     Picker("Type de carte", selection: $mapViewModel.mapType) {
-                        ForEach(MapType.allCases, id: \.self) { type in
+                        ForEach(MapDisplayType.allCases, id: \.self) { type in
                             HStack {
                                 Image(systemName: type.icon)
                                 Text(type.rawValue)

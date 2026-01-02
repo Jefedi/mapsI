@@ -44,7 +44,7 @@ struct ActiveNavigationView: View {
     }
 
     private func setupNavigationMode() {
-        mapViewModel.userTrackingMode = .followWithHeading
+        mapViewModel.userTrackingMode = .follow
         locationService.startNavigationMode()
     }
 
