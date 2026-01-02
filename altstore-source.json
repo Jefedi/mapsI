@@ -2,7 +2,6 @@
     "name": "MapsI Source",
     "subtitle": "Navigation GPS open source",
     "description": "Source AltStore pour MapsI - Application de navigation GPS utilisant OpenStreetMap.",
-    "iconURL": "",
     "website": "https://github.com/Jefedi/mapsI",
     "tintColor": "#4CAF50",
     "apps": [
@@ -12,12 +11,11 @@
             "developerName": "Jefedi",
             "subtitle": "Navigation GPS avec OpenStreetMap",
             "localizedDescription": "MapsI est une application de navigation GPS alternative à Apple Plans, Waze et Google Maps.\n\nFonctionnalités:\n- Recherche d'adresses via Nominatim\n- Navigation GPS avec guidage vocal\n- 4 modes de transport: voiture, piéton, vélo, transports en commun\n- Cartes OpenStreetMap\n- 100% gratuit et open source",
-            "iconURL": "",
             "tintColor": "#4CAF50",
             "versions": [
                 {
                     "version": "1.0.0",
-                    "date": "2026-01-02T12:00:00-00:00",
+                    "date": "2026-01-02T12:00:00+00:00",
                     "size": 5000000,
                     "downloadURL": "https://github.com/Jefedi/mapsI/releases/download/v1.0.0/MapsI-unsigned.ipa",
                     "localizedDescription": "Version initiale:\n- Recherche d'adresses\n- Navigation GPS\n- 4 modes de transport\n- Guidage vocal",
@@ -28,8 +26,7 @@
                 "entitlements": [],
                 "privacy": {
                     "NSLocationWhenInUseUsageDescription": "MapsI utilise votre position pour afficher votre emplacement sur la carte et calculer les itinéraires.",
-                    "NSLocationAlwaysAndWhenInUseUsageDescription": "MapsI utilise votre position en arrière-plan pour le guidage de navigation.",
-                    "NSSpeechRecognitionUsageDescription": "MapsI utilise la synthèse vocale pour le guidage de navigation."
+                    "NSLocationAlwaysAndWhenInUseUsageDescription": "MapsI utilise votre position en arrière-plan pour le guidage de navigation."
                 }
             }
         }
@@ -38,7 +35,7 @@
         {
             "title": "MapsI v1.0.0 disponible!",
             "identifier": "mapsi_v1_release",
-            "caption": "Première version de MapsI - Navigation GPS open source",
+            "caption": "Premiere version de MapsI - Navigation GPS open source",
             "date": "2026-01-02",
             "tintColor": "#4CAF50",
             "notify": true,
