@@ -11,6 +11,7 @@
     {
       "name": "MapsI",
       "bundleIdentifier": "com.mapsi.navigation",
+      "appID": "com.mapsi.navigation",
       "developerName": "Jefedi",
       "localizedDescription": "MapsI is a GPS navigation app alternative to Apple Maps, Waze and Google Maps.",
       "iconURL": "https://github.com/Jefedi.png",
