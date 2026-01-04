@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import CoreLocation
 
 // Alternative OSM Map View using WKWebView with Leaflet
 // This provides a true OpenStreetMap experience with proper OSM tiles
@@ -25,6 +26,7 @@ struct OSMMapView: UIViewRepresentable {
         return webView
     }
 
+    @MainActor
     func updateUIView(_ webView: WKWebView, context: Context) {
         // Update map center
         let js = "map.setView([\(centerCoordinate.latitude), \(centerCoordinate.longitude)], \(zoomLevel));"
@@ -122,6 +124,7 @@ struct OSMMapView: UIViewRepresentable {
         """
     }
 
+    @MainActor
     private func updateMarkers(_ webView: WKWebView) {
         var js = "clearMarkers();"
 
@@ -142,6 +145,7 @@ struct OSMMapView: UIViewRepresentable {
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
+    @MainActor
     private func updateRoute(_ webView: WKWebView) {
         let coordsArray = routeCoordinates.map { "[\($0.latitude), \($0.longitude)]" }.joined(separator: ",")
         let js = "setRoute([\(coordsArray)]);"
