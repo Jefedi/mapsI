@@ -2,6 +2,7 @@ import Foundation
 import CoreLocation
 import Combine
 
+@MainActor
 class SearchViewModel: ObservableObject {
     @Published var searchText = ""
     @Published var searchResults: [Location] = []

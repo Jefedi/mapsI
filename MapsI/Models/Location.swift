@@ -1,7 +1,7 @@
 import Foundation
 import CoreLocation
 
-struct Location: Identifiable, Codable, Equatable {
+struct Location: Identifiable, Codable, Equatable, Hashable {
     let id: String
     let latitude: Double
     let longitude: Double
@@ -95,6 +95,10 @@ struct Location: Identifiable, Codable, Equatable {
         default:
             return "mappin.circle.fill"
         }
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 

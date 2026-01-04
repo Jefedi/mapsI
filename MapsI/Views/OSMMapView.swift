@@ -164,5 +164,3 @@ struct OSMMapView: UIViewRepresentable {
         }
     }
 }
-
-import CoreLocation

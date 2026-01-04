@@ -3,6 +3,7 @@ import CoreLocation
 import Combine
 import AVFoundation
 
+@MainActor
 class NavigationViewModel: ObservableObject {
     @Published var isNavigating = false
     @Published var currentRoute: Route?
@@ -22,6 +23,19 @@ class NavigationViewModel: ObservableObject {
     private let speechSynthesizer = AVSpeechSynthesizer()
     private var lastSpokenInstruction: String?
     private var announcedSteps: Set<Int> = []
+
+    init() {
+        configureAudioSession()
+    }
+
+    private func configureAudioSession() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .voicePrompt, options: [.duckOthers, .interruptSpokenAudioAndMixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Failed to configure audio session: \(error)")
+        }
+    }
 
     var currentStep: RouteStep? {
         guard let route = currentRoute,

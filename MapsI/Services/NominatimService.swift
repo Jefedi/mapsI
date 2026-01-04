@@ -1,7 +1,7 @@
 import Foundation
 import CoreLocation
 
-class NominatimService {
+actor NominatimService {
     static let shared = NominatimService()
 
     private let baseURL = "https://nominatim.openstreetmap.org"
@@ -9,7 +9,7 @@ class NominatimService {
     private var lastRequestTime: Date?
     private let minRequestInterval: TimeInterval = 1.0 // Respect Nominatim usage policy
 
-    private init() {
+    init() {
         let config = URLSessionConfiguration.default
         config.httpAdditionalHeaders = [
             "User-Agent": "MapsI iOS App/1.0 (contact@mapsi.app)",

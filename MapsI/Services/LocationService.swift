@@ -2,6 +2,7 @@ import Foundation
 import CoreLocation
 import Combine
 
+@MainActor
 class LocationService: NSObject, ObservableObject {
     private let locationManager = CLLocationManager()
 
@@ -17,8 +18,8 @@ class LocationService: NSObject, ObservableObject {
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
-        locationManager.distanceFilter = 5 // Update every 5 meters
-        locationManager.headingFilter = 5 // Update every 5 degrees
+        locationManager.distanceFilter = 5
+        locationManager.headingFilter = 5
         locationManager.allowsBackgroundLocationUpdates = true
         locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.showsBackgroundLocationIndicator = true
@@ -79,31 +80,36 @@ class LocationService: NSObject, ObservableObject {
 
 // MARK: - CLLocationManagerDelegate
 extension LocationService: CLLocationManagerDelegate {
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
-
-        // Filter out inaccurate locations
         guard location.horizontalAccuracy >= 0 && location.horizontalAccuracy < 100 else { return }
 
-        currentLocation = location
-        locationUpdateHandler?(location)
+        Task { @MainActor in
+            self.currentLocation = location
+        }
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
         guard newHeading.headingAccuracy >= 0 else { return }
-        heading = newHeading
+        Task { @MainActor in
+            self.heading = newHeading
+        }
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        self.error = error
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in
+            self.error = error
+        }
     }
 
-    func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
-        authorizationStatus = status
-        updateLocationEnabledStatus()
+    nonisolated func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
+        Task { @MainActor in
+            self.authorizationStatus = status
+            self.updateLocationEnabledStatus()
 
-        if status == .authorizedWhenInUse || status == .authorizedAlways {
-            startUpdatingLocation()
+            if status == .authorizedWhenInUse || status == .authorizedAlways {
+                self.startUpdatingLocation()
+            }
         }
     }
 }
@@ -126,9 +132,9 @@ enum LocationError: LocalizedError {
     }
 }
 
-// MARK: - Extensions
-extension CLLocationCoordinate2D: Equatable {
-    public static func == (lhs: CLLocationCoordinate2D, rhs: CLLocationCoordinate2D) -> Bool {
-        lhs.latitude == rhs.latitude && lhs.longitude == rhs.longitude
+// MARK: - CLLocationCoordinate2D Extension
+extension CLLocationCoordinate2D {
+    func isEqual(to other: CLLocationCoordinate2D) -> Bool {
+        latitude == other.latitude && longitude == other.longitude
     }
 }

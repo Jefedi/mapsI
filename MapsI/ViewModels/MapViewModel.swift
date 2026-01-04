@@ -3,6 +3,7 @@ import CoreLocation
 import Combine
 import MapKit
 
+@MainActor
 class MapViewModel: ObservableObject {
     @Published var region: MKCoordinateRegion
     @Published var mapType: MapDisplayType = .standard

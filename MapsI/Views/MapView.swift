@@ -27,8 +27,8 @@ struct MapView: View {
                 RouteOverlayView(coordinates: mapViewModel.routeOverlay)
             }
         }
-        .onChange(of: locationService.currentLocation) { location in
-            if let location = location, navigationViewModel.isNavigating {
+        .onChange(of: locationService.currentLocation) { _, newLocation in
+            if let location = newLocation, navigationViewModel.isNavigating {
                 navigationViewModel.updateLocation(location)
             }
         }

@@ -1,7 +1,7 @@
 import Foundation
 import CoreLocation
 
-class OSRMService {
+actor OSRMService {
     static let shared = OSRMService()
 
     // Public OSRM demo server (for development - consider self-hosting for production)
@@ -9,7 +9,7 @@ class OSRMService {
 
     private let session: URLSession
 
-    private init() {
+    init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.httpAdditionalHeaders = [
