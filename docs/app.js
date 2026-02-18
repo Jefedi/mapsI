@@ -36,6 +36,7 @@
     let watchId = null;
     let searchTimeout = null;
     let locationRequested = false;
+    let locationErrorShown = false;
 
     // Long press state
     let longPressTimer = null;
@@ -85,8 +86,8 @@
         // Setup map event listeners
         setupMapEvents();
 
-        // Request location permission immediately
-        requestLocationPermission();
+        // Don't auto-request location - wait for user to click locate button
+        // This avoids error loops when permission is denied
     }
 
     // ===== LOCATION PERMISSION =====
@@ -131,15 +132,17 @@
             },
             err => {
                 hideLoading();
-                let msg = 'Impossible d\'obtenir votre position.\n\n';
+                // Only show permission error once to avoid spam
                 if (err.code === 1) {
-                    msg += 'Permission refusee. Allez dans:\nReglages > Confidentialite > Service de localisation > Safari';
+                    if (!locationErrorShown) {
+                        locationErrorShown = true;
+                        alert('Permission refusee.\n\nPour utiliser la localisation:\n1. Utilisez HTTPS (certificat valide)\n2. Activez Safari > Service de localisation');
+                    }
                 } else if (err.code === 2) {
-                    msg += 'Position indisponible. Verifiez que le GPS est active.';
+                    alert('Position indisponible. Verifiez que le GPS est active.');
                 } else if (err.code === 3) {
-                    msg += 'Delai depasse. Reessayez.';
+                    alert('Delai depasse. Reessayez.');
                 }
-                alert(msg);
             },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
         );
