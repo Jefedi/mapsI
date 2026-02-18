@@ -1,12 +1,116 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
-    <title>MapsI AltStore Source</title>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="MapsI">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="description" content="MapsI - Navigation GPS gratuite avec OpenStreetMap">
+    <title>MapsI</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+
+    <!-- Apple Touch Icons -->
+    <link rel="apple-touch-icon" href="icons/icon-180.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="icons/icon-152.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
+
+    <!-- Splash Screens for iPhone 15 Pro Max -->
+    <link rel="apple-touch-startup-image" href="icons/splash-1290x2796.png"
+          media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin="">
+
+    <!-- App CSS -->
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>MapsI AltStore Source</h1>
-    <p>Add this source to AltStore:</p>
-    <code>https://jefedi.github.io/mapsI/apps.json</code>
+    <!-- Map Container -->
+    <div id="map"></div>
+
+    <!-- Search Bar -->
+    <div id="search-container">
+        <div id="search-bar">
+            <svg id="search-icon" viewBox="0 0 24 24" width="20" height="20">
+                <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+                <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <input type="text" id="search-input" placeholder="Rechercher une adresse..." autocomplete="off" autocorrect="off" autocapitalize="off">
+            <button id="search-clear" class="hidden" aria-label="Effacer">&times;</button>
+        </div>
+        <div id="search-results" class="hidden"></div>
+    </div>
+
+    <!-- Locate Me Button -->
+    <button id="locate-btn" aria-label="Ma position">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+            <circle cx="12" cy="12" r="3" fill="currentColor"/>
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/>
+        </svg>
+    </button>
+
+    <!-- Transport Mode Selector -->
+    <div id="transport-modes" class="hidden">
+        <button class="transport-btn active" data-mode="driving">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path d="M5 11l1.5-4.5h11L19 11M5 11v6h2v1a1 1 0 001 1h1a1 1 0 001-1v-1h4v1a1 1 0 001 1h1a1 1 0 001-1v-1h2v-6M5 11h14M7.5 15a1 1 0 100-2 1 1 0 000 2zM16.5 15a1 1 0 100-2 1 1 0 000 2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Auto</span>
+        </button>
+        <button class="transport-btn" data-mode="walking">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path d="M13 4a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM7 21l3-7 2.5 2v5h2v-6.5l-2.5-2.5.7-3A6.2 6.2 0 0017 11V9a4.8 4.8 0 01-3.5-1.5L12 6a2 2 0 00-1.6-.8c-.5 0-1 .2-1.4.5L5 8.5V13h2V9.5l1.5-1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Marche</span>
+        </button>
+        <button class="transport-btn" data-mode="cycling">
+            <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="6" cy="17" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="17" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6 17l3-7h4l2 4h3M11 6a1 1 0 100-2 1 1 0 000 2zM12 10h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>Velo</span>
+        </button>
+    </div>
+
+    <!-- Navigation Panel -->
+    <div id="nav-panel" class="hidden">
+        <div id="nav-header">
+            <div id="nav-info">
+                <span id="nav-distance"></span>
+                <span id="nav-separator">•</span>
+                <span id="nav-duration"></span>
+            </div>
+            <button id="nav-close" aria-label="Fermer">&times;</button>
+        </div>
+        <div id="nav-instruction">
+            <span id="nav-step-text"></span>
+        </div>
+        <button id="nav-start-btn">Demarrer la navigation</button>
+    </div>
+
+    <!-- Active Navigation Bar -->
+    <div id="active-nav" class="hidden">
+        <div id="active-nav-instruction">
+            <div id="active-nav-icon"></div>
+            <div id="active-nav-text">
+                <div id="active-nav-distance"></div>
+                <div id="active-nav-street"></div>
+            </div>
+        </div>
+        <button id="active-nav-stop">Arreter</button>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading" class="hidden">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin=""></script>
+
+    <!-- App JS -->
+    <script src="app.js"></script>
 </body>
 </html>
