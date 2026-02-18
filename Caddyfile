@@ -1,8 +1,0 @@
-:443 {
-	tls internal
-	reverse_proxy mapsi:80
-}
-
-:80 {
-	redir https://{host}{uri} permanent
-}
