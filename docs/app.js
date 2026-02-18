@@ -131,7 +131,15 @@
             },
             err => {
                 hideLoading();
-                alert('Impossible d\'obtenir votre position. Verifiez les permissions.');
+                let msg = 'Impossible d\'obtenir votre position.\n\n';
+                if (err.code === 1) {
+                    msg += 'Permission refusee. Allez dans:\nReglages > Confidentialite > Service de localisation > Safari';
+                } else if (err.code === 2) {
+                    msg += 'Position indisponible. Verifiez que le GPS est active.';
+                } else if (err.code === 3) {
+                    msg += 'Delai depasse. Reessayez.';
+                }
+                alert(msg);
             },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
         );
