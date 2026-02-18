@@ -1,5 +1,5 @@
 // ==========================================
-// MapsI PWA v3.0 - Navigation GPS avec OpenStreetMap
+// MapsI PWA v3.1 - Navigation GPS avec OpenStreetMap
 // ==========================================
 
 (function() {
@@ -41,7 +41,9 @@
         fuelType: 'SP95',
         voiceEnabled: true,
         autoReroute: true,
-        showSpeed: true
+        showSpeed: true,
+        avoidMotorway: false,
+        avoidToll: false
     };
 
     // ===== STATE =====
@@ -136,6 +138,12 @@
     const $showSpeedToggle = $('show-speed-toggle');
     const $waypointsList = $('waypoints-list');
     const $addWaypointBtn = $('add-waypoint-btn');
+    const $avoidMotorwayToggle = $('avoid-motorway-toggle');
+    const $avoidTollToggle = $('avoid-toll-toggle');
+    const $elevationProfile = $('elevation-profile');
+    const $elevationCanvas = $('elevation-canvas');
+    const $elevationInfo = $('elevation-info');
+    const $navParkingBtn = $('nav-parking-btn');
 
     // ===== INIT =====
     function init() {
@@ -151,6 +159,7 @@
         setupShareEvents();
         setupPOIEvents();
         setupWaypointEvents();
+        setupParkingEvents();
         renderHistory();
         renderFavorites();
     }
@@ -189,6 +198,8 @@
         $voiceToggle.checked = settings.voiceEnabled;
         $autoRerouteToggle.checked = settings.autoReroute;
         $showSpeedToggle.checked = settings.showSpeed;
+        $avoidMotorwayToggle.checked = settings.avoidMotorway;
+        $avoidTollToggle.checked = settings.avoidToll;
 
         const tilePane = document.querySelector('.leaflet-tile-pane');
         if (tilePane) {
@@ -232,6 +243,18 @@
             settings.showSpeed = $showSpeedToggle.checked;
             if (!settings.showSpeed) $speedDisplay.classList.add('hidden');
             saveSettings();
+        });
+
+        $avoidMotorwayToggle.addEventListener('change', () => {
+            settings.avoidMotorway = $avoidMotorwayToggle.checked;
+            saveSettings();
+            if (destination && userPosition) calculateRoute();
+        });
+
+        $avoidTollToggle.addEventListener('change', () => {
+            settings.avoidToll = $avoidTollToggle.checked;
+            saveSettings();
+            if (destination && userPosition) calculateRoute();
         });
 
         if (window.matchMedia) {
@@ -424,7 +447,10 @@
 
     function renderWaypoints() {
         $waypointsList.innerHTML = waypoints.map((wp, i) => `
-            <div class="waypoint-item">
+            <div class="waypoint-item" data-index="${i}" draggable="false">
+                <div class="waypoint-drag" data-index="${i}">
+                    <svg viewBox="0 0 16 16"><path d="M4 4h8M4 8h8M4 12h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                </div>
                 <div class="waypoint-dot"></div>
                 <div class="waypoint-name">${escapeHtml(wp.name)}</div>
                 <button class="waypoint-remove" data-index="${i}">&times;</button>
@@ -432,6 +458,77 @@
         `).join('');
         $waypointsList.querySelectorAll('.waypoint-remove').forEach(btn => {
             btn.addEventListener('click', (e) => { e.stopPropagation(); removeWaypoint(parseInt(btn.dataset.index)); });
+        });
+        // 2. Setup drag to reorder
+        setupWaypointDrag();
+    }
+
+    // ===== 2. DRAG TO REORDER WAYPOINTS =====
+    let dragSrcIndex = null;
+
+    function setupWaypointDrag() {
+        const items = $waypointsList.querySelectorAll('.waypoint-item');
+        items.forEach(item => {
+            const handle = item.querySelector('.waypoint-drag');
+            if (!handle) return;
+
+            let startY = 0;
+            let dragging = false;
+
+            handle.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                dragSrcIndex = parseInt(item.dataset.index);
+                startY = e.touches[0].clientY;
+                dragging = true;
+                item.classList.add('dragging');
+            }, { passive: false });
+
+            handle.addEventListener('touchmove', (e) => {
+                if (!dragging) return;
+                e.preventDefault();
+                const touchY = e.touches[0].clientY;
+                const allItems = $waypointsList.querySelectorAll('.waypoint-item');
+                allItems.forEach(el => el.classList.remove('drag-over'));
+                // Find which item we're over
+                for (const el of allItems) {
+                    const rect = el.getBoundingClientRect();
+                    if (touchY >= rect.top && touchY <= rect.bottom) {
+                        const targetIdx = parseInt(el.dataset.index);
+                        if (targetIdx !== dragSrcIndex) el.classList.add('drag-over');
+                        break;
+                    }
+                }
+            }, { passive: false });
+
+            handle.addEventListener('touchend', (e) => {
+                if (!dragging) return;
+                dragging = false;
+                item.classList.remove('dragging');
+                const allItems = $waypointsList.querySelectorAll('.waypoint-item');
+                allItems.forEach(el => el.classList.remove('drag-over'));
+
+                const touchY = e.changedTouches[0].clientY;
+                let targetIndex = dragSrcIndex;
+                for (const el of allItems) {
+                    const rect = el.getBoundingClientRect();
+                    if (touchY >= rect.top && touchY <= rect.bottom) {
+                        targetIndex = parseInt(el.dataset.index);
+                        break;
+                    }
+                }
+
+                if (targetIndex !== dragSrcIndex && targetIndex >= 0 && targetIndex < waypoints.length) {
+                    // Reorder waypoints
+                    const [moved] = waypoints.splice(dragSrcIndex, 1);
+                    waypoints.splice(targetIndex, 0, moved);
+                    // Reorder markers
+                    const [movedMarker] = waypointMarkers.splice(dragSrcIndex, 1);
+                    waypointMarkers.splice(targetIndex, 0, movedMarker);
+                    renderWaypoints();
+                    if (destination) calculateRoute();
+                }
+                dragSrcIndex = null;
+            });
         });
     }
 
@@ -813,7 +910,12 @@
         let coords = `${userPosition.lng},${userPosition.lat}`;
         waypoints.forEach(wp => { coords += `;${wp.lon},${wp.lat}`; });
         coords += `;${destination.lon},${destination.lat}`;
-        const url = `${OSRM_URL}/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=true&alternatives=${waypoints.length === 0 ? 'true' : 'false'}`;
+        // 6. Build exclude parameter for avoid highways/tolls
+        const excludes = [];
+        if (settings.avoidMotorway) excludes.push('motorway');
+        if (settings.avoidToll) excludes.push('toll');
+        const excludeParam = excludes.length > 0 ? `&exclude=${excludes.join(',')}` : '';
+        const url = `${OSRM_URL}/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=true&alternatives=${waypoints.length === 0 ? 'true' : 'false'}${excludeParam}`;
         try {
             const resp = await fetch(url);
             const data = await resp.json(); hideLoading();
@@ -823,6 +925,7 @@
             map.fitBounds(L.latLngBounds(coords2), { padding: [60, 60] });
             displayRouteAlternatives();
             showNavPanel();
+            fetchElevationProfile(allRoutes[0].geometry.coordinates);
         } catch (err) { hideLoading(); alert('Erreur de calcul du trajet'); }
     }
 
@@ -901,6 +1004,7 @@
     function stopNavigation() {
         isNavigating = false;
         $activeNav.classList.add('hidden'); $speedDisplay.classList.add('hidden'); $speedLimit.classList.add('hidden');
+        $elevationProfile.classList.add('hidden');
         $locateBtn.classList.remove('nav-hidden');
         document.body.classList.remove('navigating');
         stopWatchingPosition();
@@ -1007,6 +1111,145 @@
         if (destination && userPosition) calculateRoute();
     }
 
+    // ===== 12. ELEVATION PROFILE =====
+    async function fetchElevationProfile(routeCoords) {
+        if (!routeCoords || routeCoords.length < 2) { $elevationProfile.classList.add('hidden'); return; }
+        // Sample ~40 points along the route
+        const sampleCount = Math.min(40, routeCoords.length);
+        const step = Math.max(1, Math.floor(routeCoords.length / sampleCount));
+        const sampled = [];
+        for (let i = 0; i < routeCoords.length; i += step) sampled.push(routeCoords[i]);
+        if (sampled[sampled.length - 1] !== routeCoords[routeCoords.length - 1]) sampled.push(routeCoords[routeCoords.length - 1]);
+
+        const locations = sampled.map(c => `${c[1]},${c[0]}`).join('|');
+        try {
+            const resp = await fetch(`https://api.opentopodata.org/v1/mapzen?locations=${locations}`);
+            const data = await resp.json();
+            if (data.status === 'OK' && data.results) {
+                const elevations = data.results.map(r => r.elevation ?? 0);
+                drawElevationProfile(elevations);
+            } else {
+                $elevationProfile.classList.add('hidden');
+            }
+        } catch (e) {
+            $elevationProfile.classList.add('hidden');
+        }
+    }
+
+    function drawElevationProfile(elevations) {
+        if (!elevations || elevations.length < 2) { $elevationProfile.classList.add('hidden'); return; }
+        $elevationProfile.classList.remove('hidden');
+
+        const canvas = $elevationCanvas;
+        const ctx = canvas.getContext('2d');
+        // Set canvas size to actual display size
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * (window.devicePixelRatio || 1);
+        canvas.height = rect.height * (window.devicePixelRatio || 1);
+        ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+        const w = rect.width;
+        const h = rect.height;
+
+        const minElev = Math.min(...elevations);
+        const maxElev = Math.max(...elevations);
+        const range = Math.max(maxElev - minElev, 1);
+
+        // Calculate total ascent/descent
+        let totalAscent = 0, totalDescent = 0;
+        for (let i = 1; i < elevations.length; i++) {
+            const diff = elevations[i] - elevations[i - 1];
+            if (diff > 0) totalAscent += diff;
+            else totalDescent += Math.abs(diff);
+        }
+        $elevationInfo.textContent = `↑ ${Math.round(totalAscent)}m  ↓ ${Math.round(totalDescent)}m`;
+
+        // Draw filled area
+        ctx.clearRect(0, 0, w, h);
+        const padding = 4;
+        const graphW = w - padding * 2;
+        const graphH = h - padding * 2;
+
+        ctx.beginPath();
+        ctx.moveTo(padding, h - padding);
+        elevations.forEach((elev, i) => {
+            const x = padding + (i / (elevations.length - 1)) * graphW;
+            const y = h - padding - ((elev - minElev) / range) * graphH;
+            ctx.lineTo(x, y);
+        });
+        ctx.lineTo(padding + graphW, h - padding);
+        ctx.closePath();
+
+        const gradient = ctx.createLinearGradient(0, padding, 0, h - padding);
+        gradient.addColorStop(0, 'rgba(10, 132, 255, 0.4)');
+        gradient.addColorStop(1, 'rgba(10, 132, 255, 0.05)');
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        // Draw line
+        ctx.beginPath();
+        elevations.forEach((elev, i) => {
+            const x = padding + (i / (elevations.length - 1)) * graphW;
+            const y = h - padding - ((elev - minElev) / range) * graphH;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.strokeStyle = '#0a84ff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Labels
+        ctx.fillStyle = isDarkMode() ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)';
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${Math.round(maxElev)}m`, padding + 2, padding + 10);
+        ctx.fillText(`${Math.round(minElev)}m`, padding + 2, h - padding - 2);
+    }
+
+    // ===== 11. PARKING NEAR DESTINATION =====
+    function setupParkingEvents() {
+        $navParkingBtn.addEventListener('click', () => searchParkingNearDest());
+    }
+
+    async function searchParkingNearDest() {
+        if (!destination) { alert('Aucune destination definie'); return; }
+        showLoading();
+        const query = `[out:json][timeout:10];node[amenity=parking](around:1500,${destination.lat},${destination.lon});out body 15;`;
+        try {
+            const resp = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+            const data = await resp.json();
+            hideLoading();
+            if (!data.elements || data.elements.length === 0) {
+                alert('Aucun parking trouve pres de la destination');
+                return;
+            }
+            // Show parking markers on map
+            clearPOIMarkers();
+            data.elements.forEach(el => {
+                el._dist = haversine(destination.lat, destination.lon, el.lat, el.lon);
+            });
+            data.elements.sort((a, b) => a._dist - b._dist);
+
+            data.elements.forEach(el => {
+                const name = el.tags?.name || 'Parking';
+                const fee = el.tags?.fee === 'yes' ? ' (payant)' : el.tags?.fee === 'no' ? ' (gratuit)' : '';
+                const capacity = el.tags?.capacity ? ` - ${el.tags.capacity} places` : '';
+                const marker = L.circleMarker([el.lat, el.lon], {
+                    radius: 10, fillColor: '#5856d6', color: '#fff', weight: 2, fillOpacity: 0.9
+                }).bindPopup(`<b>${name}</b>${fee}${capacity}<br>${formatDistance(el._dist)} de la destination`).addTo(map);
+                poiMarkers.push(marker);
+            });
+
+            // Open first parking popup
+            if (poiMarkers.length > 0) poiMarkers[0].openPopup();
+            // Fit bounds to show destination + parkings
+            const bounds = L.latLngBounds([[destination.lat, destination.lon]]);
+            data.elements.slice(0, 5).forEach(el => bounds.extend([el.lat, el.lon]));
+            map.fitBounds(bounds, { padding: [60, 60] });
+        } catch (e) {
+            hideLoading();
+            alert('Erreur lors de la recherche de parkings');
+        }
+    }
+
     // ===== HELPERS =====
     function formatDistance(m) { return m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m) + ' m'; }
     function formatDuration(s) { if (s < 60) return '< 1 min'; const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h > 0 ? h + ' h ' + m + ' min' : m + ' min'; }
@@ -1033,10 +1276,11 @@
     document.querySelectorAll('.transport-btn').forEach(btn => btn.addEventListener('click', () => selectTransportMode(btn.dataset.mode)));
     $navClose.addEventListener('click', () => {
         $navPanel.classList.add('hidden'); $transportModes.classList.add('hidden'); $routeAlternatives.classList.add('hidden');
+        $elevationProfile.classList.add('hidden');
         if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
         if (routeShadowLayer) { map.removeLayer(routeShadowLayer); routeShadowLayer = null; }
         if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
-        clearAltRouteLayers(); clearWaypoints();
+        clearAltRouteLayers(); clearWaypoints(); clearPOIMarkers();
         $searchInput.value = ''; $searchClear.classList.add('hidden'); destination = null; allRoutes = [];
     });
     $navStartBtn.addEventListener('click', startNavigation);

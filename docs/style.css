@@ -1567,3 +1567,271 @@ body.light-mode::after {
     font-size: 13px;
     font-weight: 600;
 }
+
+/* ===== WAYPOINT DRAG HANDLE ===== */
+.waypoint-drag {
+    cursor: grab;
+    color: var(--text-secondary);
+    padding: 4px;
+    flex-shrink: 0;
+    touch-action: none;
+}
+
+.waypoint-drag svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+}
+
+.waypoint-item.dragging {
+    opacity: 0.5;
+    background: rgba(10, 132, 255, 0.15);
+    border: 1px dashed var(--primary);
+}
+
+.waypoint-item.drag-over {
+    border-top: 2px solid var(--primary);
+}
+
+/* ===== ELEVATION PROFILE ===== */
+#elevation-profile {
+    padding: 8px 0 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    margin-bottom: 8px;
+}
+
+.elevation-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.elevation-header span:first-child {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+#elevation-info {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+#elevation-canvas {
+    width: 100%;
+    height: 80px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.04);
+}
+
+/* ===== NAV PARKING BUTTON ===== */
+#nav-parking-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 14px 12px;
+    border: none;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.1);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+#nav-parking-btn:active {
+    background: rgba(255,255,255,0.15);
+}
+
+#nav-parking-btn svg {
+    flex-shrink: 0;
+}
+
+/* ===== LANDSCAPE MODE ===== */
+@media (orientation: landscape) and (max-height: 500px) {
+    /* Toolbar: horizontal compact */
+    #toolbar {
+        height: calc(44px + var(--safe-bottom));
+    }
+
+    .toolbar-btn {
+        flex-direction: row;
+        gap: 6px;
+    }
+
+    .toolbar-btn span {
+        font-size: 11px;
+    }
+
+    .toolbar-btn svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    /* Map view takes more space */
+    #map-view {
+        bottom: calc(44px + var(--safe-bottom));
+    }
+
+    #search-view,
+    #settings-view {
+        bottom: calc(44px + var(--safe-bottom));
+    }
+
+    /* Search bar: smaller */
+    #search-bar {
+        height: 40px;
+    }
+
+    #search-container {
+        top: calc(var(--safe-top) + 4px);
+        left: calc(var(--safe-left) + 8px);
+        right: calc(var(--safe-right) + 8px);
+    }
+
+    /* Nav panel: limit height, horizontal layout */
+    #nav-panel {
+        max-height: 55vh;
+        overflow-y: auto;
+        padding: 10px 16px 10px;
+        bottom: calc(44px + var(--safe-bottom));
+    }
+
+    #nav-header {
+        margin-bottom: 4px;
+    }
+
+    #nav-distance {
+        font-size: 18px;
+    }
+
+    #nav-duration {
+        font-size: 15px;
+    }
+
+    #nav-instruction {
+        padding: 6px 0;
+        margin-bottom: 8px;
+    }
+
+    #nav-actions {
+        gap: 6px;
+    }
+
+    #nav-start-btn,
+    #nav-share-btn,
+    #nav-parking-btn {
+        padding: 10px;
+        font-size: 14px;
+    }
+
+    /* Waypoints compact */
+    #waypoints-section {
+        padding: 4px 0 8px;
+    }
+
+    .waypoint-item {
+        padding: 6px 10px;
+    }
+
+    /* Elevation profile compact */
+    #elevation-canvas {
+        height: 50px;
+    }
+
+    /* Active nav: compact */
+    #active-nav {
+        padding: calc(var(--safe-top) + 4px) 12px 8px;
+    }
+
+    #active-nav-icon {
+        width: 36px;
+        height: 36px;
+    }
+
+    #active-nav-distance {
+        font-size: 22px;
+    }
+
+    #active-nav-instruction {
+        margin-bottom: 6px;
+    }
+
+    #active-nav-info {
+        margin-bottom: 6px;
+        padding-top: 4px;
+    }
+
+    #active-nav-stop {
+        padding: 8px;
+        font-size: 14px;
+    }
+
+    /* Speed display: smaller */
+    #speed-display {
+        padding: 6px 10px;
+    }
+
+    #speed-value {
+        font-size: 22px;
+    }
+
+    /* Locate/POI buttons */
+    #locate-btn,
+    #poi-btn {
+        width: 40px;
+        height: 40px;
+    }
+
+    #locate-btn svg,
+    #poi-btn svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    /* POI panel compact */
+    #poi-panel {
+        max-height: 50vh;
+        padding: 10px 12px calc(var(--safe-bottom) + 44px + 10px);
+    }
+
+    .poi-categories {
+        gap: 4px;
+        margin-bottom: 8px;
+    }
+
+    .poi-cat-btn {
+        padding: 8px 4px;
+        font-size: 10px;
+    }
+
+    /* Route alternatives compact */
+    .route-option {
+        padding: 6px 12px;
+    }
+
+    .route-option .route-time {
+        font-size: 13px;
+    }
+
+    /* Transport modes compact */
+    .transport-btn {
+        padding: 6px 14px;
+        font-size: 10px;
+    }
+
+    /* Settings compact */
+    #settings-view {
+        padding-top: calc(var(--safe-top) + 10px);
+    }
+
+    .setting-item {
+        padding: 10px 16px;
+    }
+}
