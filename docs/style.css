@@ -512,16 +512,19 @@ html, body {
     top: 0;
     left: 0;
     right: 0;
-    bottom: 60px; /* Space for toolbar */
-    padding-bottom: var(--safe-bottom);
+    bottom: calc(60px + var(--safe-bottom));
 }
 
 #map-view #map {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
     bottom: 0;
 }
 
 #map-view #locate-btn {
-    bottom: 24px;
+    bottom: 16px;
 }
 
 /* ===== SEARCH VIEW ===== */
