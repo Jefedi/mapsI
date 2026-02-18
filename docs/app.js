@@ -16,10 +16,9 @@
     const DEFAULT_CENTER = [46.603354, 1.888334]; // France center
     const DEFAULT_ZOOM = 6;
     const SEARCH_DEBOUNCE = 400;
-    const LONG_PRESS_DURATION = 800; // ms - durée pour appui long
-    const LONG_PRESS_MOVE_THRESHOLD = 10; // pixels - mouvement max avant annulation
-    const NAV_ZOOM = 18; // Zoom proche pour navigation
-    const NAV_OFFSET_RATIO = 0.35; // Position utilisateur à 35% du bas de l'écran
+    const LONG_PRESS_DURATION = 800;
+    const LONG_PRESS_MOVE_THRESHOLD = 10;
+    const NAV_ZOOM = 17; // Zoom navigation
 
     // ===== STATE =====
     let map;
@@ -37,19 +36,12 @@
     let isNavigating = false;
     let watchId = null;
     let searchTimeout = null;
-    let locationRequested = false;
     let locationErrorShown = false;
 
     // Long press state
     let longPressTimer = null;
     let longPressStartX = 0;
     let longPressStartY = 0;
-    let isLongPress = false;
-
-    // Navigation view state
-    let currentHeading = 0;
-    let lastHeading = 0;
-    let mapRotation = 0;
 
     // ===== DOM ELEMENTS =====
     const $searchInput = document.getElementById('search-input');
@@ -79,21 +71,16 @@
             attributionControl: true
         });
 
-        // OpenStreetMap tiles
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
         }).addTo(map);
 
-        // Apply dark tiles based on preference
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
             document.querySelector('.leaflet-tile-pane')?.classList.add('dark-tiles');
         }
 
-        // Setup map event listeners
         setupMapEvents();
-
-        // Auto-centrer sur la position de l'utilisateur au chargement
         autoLocateOnLoad();
     }
 
@@ -107,41 +94,13 @@
                 map.setView([pos.coords.latitude, pos.coords.longitude], 15);
                 startWatchingPosition();
             },
-            err => {
-                // Silently fail - user can click locate button
-                console.log('Auto-locate failed:', err.message);
-            },
+            () => {},
             { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
         );
     }
 
-    // ===== LOCATION PERMISSION =====
-    function requestLocationPermission() {
-        if (!navigator.geolocation) {
-            console.warn('Geolocation not supported');
-            return;
-        }
-
-        if (locationRequested) return;
-        locationRequested = true;
-
-        // This will trigger the browser permission dialog
-        navigator.geolocation.getCurrentPosition(
-            pos => {
-                updateUserPosition(pos);
-                map.setView([pos.coords.latitude, pos.coords.longitude], 15);
-                startWatchingPosition();
-            },
-            err => {
-                console.warn('Geolocation error:', err.message);
-                // Permission denied or error - still let user use the map
-            },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-        );
-    }
-
     // ===== USER LOCATION =====
-    function locateUser(animate = true) {
+    function locateUser() {
         if (!navigator.geolocation) return;
 
         showLoading();
@@ -149,24 +108,15 @@
             pos => {
                 hideLoading();
                 updateUserPosition(pos);
-                if (animate) {
-                    map.flyTo([pos.coords.latitude, pos.coords.longitude], 16, { duration: 1 });
-                } else {
-                    map.setView([pos.coords.latitude, pos.coords.longitude], 15);
-                }
+                map.flyTo([pos.coords.latitude, pos.coords.longitude], 16, { duration: 0.8 });
             },
             err => {
                 hideLoading();
-                // Only show permission error once to avoid spam
-                if (err.code === 1) {
-                    if (!locationErrorShown) {
-                        locationErrorShown = true;
-                        alert('Permission refusee.\n\nPour utiliser la localisation:\n1. Utilisez HTTPS (certificat valide)\n2. Activez Safari > Service de localisation');
-                    }
+                if (err.code === 1 && !locationErrorShown) {
+                    locationErrorShown = true;
+                    alert('Permission refusee.\n\nActivez la localisation dans les reglages.');
                 } else if (err.code === 2) {
-                    alert('Position indisponible. Verifiez que le GPS est active.');
-                } else if (err.code === 3) {
-                    alert('Delai depasse. Reessayez.');
+                    alert('Position indisponible.');
                 }
             },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
@@ -174,15 +124,12 @@
     }
 
     function startWatchingPosition() {
-        if (watchId !== null) return;
-        if (!navigator.geolocation) return;
+        if (watchId !== null || !navigator.geolocation) return;
 
         watchId = navigator.geolocation.watchPosition(
             pos => {
                 updateUserPosition(pos);
-                if (isNavigating) {
-                    updateNavigation(pos);
-                }
+                if (isNavigating) updateNavigation(pos);
             },
             () => {},
             { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 }
@@ -207,47 +154,54 @@
 
         const latlng = [lat, lng];
 
-        // Icône différente selon le mode (navigation ou non)
-        const iconHtml = isNavigating
-            ? '<div class="user-nav-arrow"></div><div class="user-location-dot nav"></div>'
-            : '<div class="user-location-pulse"></div><div class="user-location-dot"></div>';
-
-        if (!userMarker) {
-            const dotIcon = L.divIcon({
-                className: 'user-marker-container',
-                html: iconHtml,
-                iconSize: [40, 40],
-                iconAnchor: [20, 20]
-            });
-            userMarker = L.marker(latlng, { icon: dotIcon, zIndexOffset: 1000 }).addTo(map);
+        if (isNavigating) {
+            // Icône flèche navigation
+            if (!userMarker) {
+                userMarker = L.marker(latlng, { icon: createNavIcon(), zIndexOffset: 1000 }).addTo(map);
+            } else {
+                userMarker.setLatLng(latlng);
+                userMarker.setIcon(createNavIcon());
+            }
         } else {
-            userMarker.setLatLng(latlng);
-            // Mettre à jour l'icône si le mode a changé
-            const currentHtml = userMarker.getIcon().options.html;
-            if ((isNavigating && !currentHtml.includes('user-nav-arrow')) ||
-                (!isNavigating && currentHtml.includes('user-nav-arrow'))) {
-                const newIcon = L.divIcon({
-                    className: 'user-marker-container',
-                    html: iconHtml,
-                    iconSize: [40, 40],
-                    iconAnchor: [20, 20]
-                });
-                userMarker.setIcon(newIcon);
+            // Icône point bleu normal
+            if (!userMarker) {
+                userMarker = L.marker(latlng, { icon: createDotIcon(), zIndexOffset: 1000 }).addTo(map);
+            } else {
+                userMarker.setLatLng(latlng);
+                if (!isNavigating) userMarker.setIcon(createDotIcon());
             }
         }
     }
 
-    // ===== MAP EVENTS (Long Press) =====
+    function createDotIcon() {
+        return L.divIcon({
+            className: '',
+            html: '<div class="user-location-pulse"></div><div class="user-location-dot"></div>',
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+        });
+    }
+
+    function createNavIcon() {
+        return L.divIcon({
+            className: 'user-nav-marker',
+            html: `<svg viewBox="0 0 48 48">
+                <circle cx="24" cy="24" r="20" fill="#0a84ff" stroke="white" stroke-width="4"/>
+                <polygon points="24,8 32,28 24,24 16,28" fill="white"/>
+            </svg>`,
+            iconSize: [48, 48],
+            iconAnchor: [24, 24]
+        });
+    }
+
+    // ===== MAP EVENTS =====
     function setupMapEvents() {
         const mapEl = document.getElementById('map');
-
-        // Touch events for long press
         mapEl.addEventListener('touchstart', handleTouchStart, { passive: false });
         mapEl.addEventListener('touchmove', handleTouchMove, { passive: true });
         mapEl.addEventListener('touchend', handleTouchEnd, { passive: true });
         mapEl.addEventListener('touchcancel', handleTouchEnd, { passive: true });
 
-        // Close search results when tapping map
         map.on('click', () => {
             $searchResults.classList.add('hidden');
             $searchInput.blur();
@@ -255,17 +209,13 @@
     }
 
     function handleTouchStart(e) {
-        if (isNavigating) return;
-        if (e.touches.length !== 1) return; // Only single touch
+        if (isNavigating || e.touches.length !== 1) return;
 
         const touch = e.touches[0];
         longPressStartX = touch.clientX;
         longPressStartY = touch.clientY;
-        isLongPress = false;
 
-        // Start long press timer
         longPressTimer = setTimeout(() => {
-            isLongPress = true;
             handleLongPress(touch.clientX, touch.clientY);
         }, LONG_PRESS_DURATION);
     }
@@ -277,7 +227,6 @@
         const dx = Math.abs(touch.clientX - longPressStartX);
         const dy = Math.abs(touch.clientY - longPressStartY);
 
-        // Cancel long press if finger moved too much
         if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
             clearTimeout(longPressTimer);
             longPressTimer = null;
@@ -292,19 +241,13 @@
     }
 
     function handleLongPress(clientX, clientY) {
-        // Vibrate feedback if supported
-        if (navigator.vibrate) {
-            navigator.vibrate(50);
-        }
+        if (navigator.vibrate) navigator.vibrate(50);
 
-        // Get map coordinates from screen position
         const containerPoint = L.point(clientX, clientY);
         const layerPoint = map.containerPointToLayerPoint(containerPoint);
         const latlng = map.layerPointToLatLng(layerPoint);
 
-        if (latlng) {
-            reverseGeocode(latlng.lat, latlng.lng);
-        }
+        if (latlng) reverseGeocode(latlng.lat, latlng.lng);
     }
 
     // ===== SEARCH =====
@@ -328,8 +271,7 @@
             });
 
             if (userPosition) {
-                params.set('viewbox',
-                    `${userPosition.lng - 1},${userPosition.lat + 1},${userPosition.lng + 1},${userPosition.lat - 1}`);
+                params.set('viewbox', `${userPosition.lng - 1},${userPosition.lat + 1},${userPosition.lng + 1},${userPosition.lat - 1}`);
                 params.set('bounded', '0');
             }
 
@@ -385,7 +327,6 @@
         setDestination(lat, lon, name);
     }
 
-    // ===== REVERSE GEOCODE (for long press) =====
     async function reverseGeocode(lat, lon) {
         showLoading();
         try {
@@ -409,7 +350,6 @@
     function setDestination(lat, lon, name) {
         destination = { lat, lon, name };
 
-        // Remove existing destination marker
         if (destMarker) map.removeLayer(destMarker);
 
         const destIcon = L.divIcon({
@@ -425,25 +365,21 @@
         destMarker = L.marker([lat, lon], { icon: destIcon }).addTo(map);
         map.flyTo([lat, lon], 15, { duration: 0.8 });
 
-        // Calculate route if we have user position
         if (userPosition) {
             calculateRoute();
         } else {
-            // Try to get user position first
             navigator.geolocation?.getCurrentPosition(
                 pos => {
                     updateUserPosition(pos);
                     calculateRoute();
                 },
-                () => {
-                    alert('Activez la localisation pour calculer l\'itineraire');
-                },
+                () => alert('Activez la localisation pour calculer l\'itineraire'),
                 { enableHighAccuracy: true, timeout: 5000 }
             );
         }
     }
 
-    // ===== ROUTING (OSRM) =====
+    // ===== ROUTING =====
     async function calculateRoute() {
         if (!userPosition || !destination) return;
 
@@ -469,53 +405,38 @@
             drawRoute(routeData.geometry);
             showNavPanel();
 
-            // Fit map to route bounds
             const coords = routeData.geometry.coordinates.map(c => [c[1], c[0]]);
             const bounds = L.latLngBounds(coords);
             map.fitBounds(bounds, { padding: [60, 60] });
 
         } catch (err) {
             hideLoading();
-            console.error('Route error:', err);
             alert('Erreur de calcul du trajet');
         }
     }
 
     function drawRoute(geometry) {
-        // Clear existing route
         if (routeLayer) map.removeLayer(routeLayer);
         if (routeShadowLayer) map.removeLayer(routeShadowLayer);
 
-        // Shadow line
         routeShadowLayer = L.geoJSON(geometry, {
             style: { color: '#000', weight: 8, opacity: 0.15 }
         }).addTo(map);
 
-        // Main route line
         const color = transportMode === 'walking' ? '#30d158' : transportMode === 'cycling' ? '#ff9f0a' : '#0a84ff';
         routeLayer = L.geoJSON(geometry, {
-            style: {
-                color: color,
-                weight: 5,
-                opacity: 0.9,
-                lineCap: 'round',
-                lineJoin: 'round'
-            }
+            style: { color: color, weight: 5, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }
         }).addTo(map);
     }
 
     function showNavPanel() {
-        const distance = routeData.distance;
-        const duration = routeData.duration;
-
-        $navDistance.textContent = formatDistance(distance);
-        $navDuration.textContent = formatDuration(duration);
+        $navDistance.textContent = formatDistance(routeData.distance);
+        $navDuration.textContent = formatDuration(routeData.duration);
 
         if (routeSteps.length > 0) {
             $navStepText.textContent = translateManeuver(routeSteps[0].maneuver.type, routeSteps[0].maneuver.modifier, routeSteps[0].name);
         }
 
-        // Show transport modes (inside nav panel area, at bottom)
         $transportModes.classList.remove('hidden');
         $navPanel.classList.remove('hidden');
     }
@@ -528,150 +449,39 @@
         $navPanel.classList.add('hidden');
         $transportModes.classList.add('hidden');
         $activeNav.classList.remove('hidden');
-
-        // Activer le mode navigation sur la carte
-        document.getElementById('map').classList.add('nav-mode');
+        $locateBtn.classList.add('nav-hidden');
 
         startWatchingPosition();
         updateNavigationDisplay();
 
-        // Zoom proche et centrage IMMEDIAT sur l'utilisateur (forceUpdate=true)
+        // Centrer immédiatement sur l'utilisateur avec zoom navigation
         if (userPosition) {
-            // Forcer la mise à jour immédiate de la vue navigation
-            setNavigationView(userPosition.lat, userPosition.lng, userPosition.heading, true);
-
-            // Mettre à jour aussi l'icône du marqueur immédiatement
-            const iconHtml = '<div class="user-nav-arrow"></div><div class="user-location-dot nav"></div>';
-            const newIcon = L.divIcon({
-                className: 'user-marker-container',
-                html: iconHtml,
-                iconSize: [40, 40],
-                iconAnchor: [20, 20]
-            });
-            if (userMarker) {
-                userMarker.setIcon(newIcon);
-            }
+            map.setView([userPosition.lat, userPosition.lng], NAV_ZOOM);
+            // Forcer mise à jour de l'icône
+            if (userMarker) userMarker.setIcon(createNavIcon());
         }
 
-        // Keep screen awake
         if ('wakeLock' in navigator) {
             navigator.wakeLock.request('screen').catch(() => {});
-        }
-    }
-
-    // Calculer le cap vers la prochaine étape si pas de heading GPS
-    function calculateBearingToNextStep() {
-        if (!userPosition || !routeSteps.length) return 0;
-
-        const step = routeSteps[currentStepIndex];
-        if (!step || !step.maneuver) return lastHeading;
-
-        const loc = step.maneuver.location;
-        return calculateBearing(userPosition.lat, userPosition.lng, loc[1], loc[0]);
-    }
-
-    function calculateBearing(lat1, lng1, lat2, lng2) {
-        const dLng = (lng2 - lng1) * Math.PI / 180;
-        const lat1Rad = lat1 * Math.PI / 180;
-        const lat2Rad = lat2 * Math.PI / 180;
-
-        const x = Math.sin(dLng) * Math.cos(lat2Rad);
-        const y = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
-                  Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLng);
-
-        let bearing = Math.atan2(x, y) * 180 / Math.PI;
-        return (bearing + 360) % 360;
-    }
-
-    function setNavigationView(lat, lng, heading, forceUpdate = false) {
-        // Utiliser le heading GPS ou calculer vers la prochaine étape
-        let targetHeading = heading;
-        if (targetHeading === null || targetHeading === undefined || isNaN(targetHeading)) {
-            targetHeading = calculateBearingToNextStep();
-        }
-
-        // Lisser la rotation (éviter les sauts brusques)
-        let headingDiff = targetHeading - lastHeading;
-        if (headingDiff > 180) headingDiff -= 360;
-        if (headingDiff < -180) headingDiff += 360;
-
-        // Mettre à jour la rotation si changement significatif (> 5°) ou forceUpdate
-        if (forceUpdate || Math.abs(headingDiff) > 5) {
-            currentHeading = targetHeading;
-            lastHeading = targetHeading;
-            mapRotation = -targetHeading; // Rotation inverse pour que le nord soit "devant"
-
-            // Appliquer la rotation CSS sur le conteneur de tuiles
-            const mapEl = document.getElementById('map');
-            mapEl.style.setProperty('--map-rotation', `${mapRotation}deg`);
-        }
-
-        // TOUJOURS calculer et appliquer la position (zoom + centrage)
-        const mapSize = map.getSize();
-        const offsetY = mapSize.y * (0.5 - NAV_OFFSET_RATIO); // Décaler vers le haut
-
-        // Convertir le décalage en coordonnées géographiques
-        const targetPoint = map.project([lat, lng], NAV_ZOOM);
-        targetPoint.y -= offsetY;
-        const offsetLatLng = map.unproject(targetPoint, NAV_ZOOM);
-
-        // Appliquer la vue avec animation rapide pour le premier appel
-        const duration = forceUpdate ? 0.5 : 0.3;
-        map.setView(offsetLatLng, NAV_ZOOM, { animate: true, duration: duration });
-
-        // Mettre à jour l'orientation du marqueur utilisateur
-        updateUserMarkerRotation(targetHeading);
-    }
-
-    function updateUserMarkerRotation(heading) {
-        if (!userMarker) return;
-
-        const markerEl = userMarker.getElement();
-        if (markerEl) {
-            // Compenser la rotation de la carte pour que la flèche pointe toujours vers l'avant
-            const arrowRotation = heading + mapRotation;
-            markerEl.style.setProperty('--arrow-rotation', `${arrowRotation}deg`);
         }
     }
 
     function stopNavigation() {
         isNavigating = false;
         $activeNav.classList.add('hidden');
+        $locateBtn.classList.remove('nav-hidden');
         stopWatchingPosition();
 
-        // Désactiver le mode navigation
-        const mapEl = document.getElementById('map');
-        mapEl.classList.remove('nav-mode');
-        mapEl.style.setProperty('--map-rotation', '0deg');
-        mapRotation = 0;
-        lastHeading = 0;
+        if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+        if (routeShadowLayer) { map.removeLayer(routeShadowLayer); routeShadowLayer = null; }
+        if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
 
-        // Réinitialiser le marqueur utilisateur (retirer la flèche)
-        if (userMarker) {
-            const markerEl = userMarker.getElement();
-            if (markerEl) {
-                markerEl.style.setProperty('--arrow-rotation', '0deg');
-            }
+        // Remettre l'icône normale
+        if (userMarker && userPosition) {
+            userMarker.setIcon(createDotIcon());
         }
 
-        // Clear route
-        if (routeLayer) {
-            map.removeLayer(routeLayer);
-            routeLayer = null;
-        }
-        if (routeShadowLayer) {
-            map.removeLayer(routeShadowLayer);
-            routeShadowLayer = null;
-        }
-        if (destMarker) {
-            map.removeLayer(destMarker);
-            destMarker = null;
-        }
-
-        // Revenir à un zoom normal centré sur l'utilisateur
-        if (userPosition) {
-            map.setView([userPosition.lat, userPosition.lng], 15, { animate: true });
-        }
+        if (userPosition) map.setView([userPosition.lat, userPosition.lng], 15);
 
         $transportModes.classList.add('hidden');
         $searchInput.value = '';
@@ -696,21 +506,18 @@
         if (dist < 30 && currentStepIndex < routeSteps.length - 1) {
             currentStepIndex++;
             updateNavigationDisplay();
-            // Vibrate on new instruction
             if (navigator.vibrate) navigator.vibrate(100);
         }
 
-        // Update distance to next step
         const nextStep = routeSteps[currentStepIndex];
         if (nextStep) {
             const nextDist = haversine(userLat, userLng, nextStep.maneuver.location[1], nextStep.maneuver.location[0]);
             $activeNavDistance.textContent = formatDistance(nextDist);
         }
 
-        // Mettre à jour la vue navigation (zoom proche + rotation + centrage bas)
-        setNavigationView(userLat, userLng, pos.coords.heading);
+        // Centrer sur l'utilisateur pendant la navigation
+        map.setView([userLat, userLng], NAV_ZOOM, { animate: true, duration: 0.5 });
 
-        // Check if arrived at destination
         const destDist = haversine(userLat, userLng, destination.lat, destination.lon);
         if (destDist < 30) {
             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
@@ -729,22 +536,17 @@
         $activeNavDistance.textContent = formatDistance(step.distance);
     }
 
-    // ===== TRANSPORT MODE SELECTION =====
     function selectTransportMode(mode) {
         transportMode = mode;
         document.querySelectorAll('.transport-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
-        if (destination && userPosition) {
-            calculateRoute();
-        }
+        if (destination && userPosition) calculateRoute();
     }
 
     // ===== HELPERS =====
     function formatDistance(meters) {
-        if (meters >= 1000) {
-            return (meters / 1000).toFixed(1) + ' km';
-        }
+        if (meters >= 1000) return (meters / 1000).toFixed(1) + ' km';
         return Math.round(meters) + ' m';
     }
 
@@ -807,7 +609,6 @@
     function hideLoading() { $loading.classList.add('hidden'); }
 
     // ===== EVENT LISTENERS =====
-    // Search
     $searchInput.addEventListener('input', e => {
         const val = e.target.value.trim();
         $searchClear.classList.toggle('hidden', val.length === 0);
@@ -827,37 +628,25 @@
         $searchInput.focus();
     });
 
-    // Locate button
     $locateBtn.addEventListener('click', () => {
         if (isTracking) {
             stopWatchingPosition();
         } else {
-            locateUser(true);
+            locateUser();
             startWatchingPosition();
         }
     });
 
-    // Transport mode buttons
     document.querySelectorAll('.transport-btn').forEach(btn => {
         btn.addEventListener('click', () => selectTransportMode(btn.dataset.mode));
     });
 
-    // Navigation panel close
     $navClose.addEventListener('click', () => {
         $navPanel.classList.add('hidden');
         $transportModes.classList.add('hidden');
-        if (routeLayer) {
-            map.removeLayer(routeLayer);
-            routeLayer = null;
-        }
-        if (routeShadowLayer) {
-            map.removeLayer(routeShadowLayer);
-            routeShadowLayer = null;
-        }
-        if (destMarker) {
-            map.removeLayer(destMarker);
-            destMarker = null;
-        }
+        if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+        if (routeShadowLayer) { map.removeLayer(routeShadowLayer); routeShadowLayer = null; }
+        if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
         $searchInput.value = '';
         $searchClear.classList.add('hidden');
         destination = null;

@@ -221,6 +221,10 @@ html, body {
     color: var(--success);
 }
 
+#locate-btn.nav-hidden {
+    display: none;
+}
+
 /* ===== TRANSPORT MODES - Inside nav panel ===== */
 #transport-modes {
     display: flex;
@@ -457,6 +461,19 @@ html, body {
     100% { transform: scale(2); opacity: 0; }
 }
 
+/* ===== USER NAV MARKER (arrow style) ===== */
+.user-nav-marker {
+    position: relative;
+    width: 48px;
+    height: 48px;
+}
+
+.user-nav-marker svg {
+    width: 100%;
+    height: 100%;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
+}
+
 /* ===== DESTINATION MARKER ===== */
 .destination-marker {
     width: 32px;
@@ -487,91 +504,4 @@ html, body {
 /* ===== DARK MODE MAP TILES ===== */
 .dark-tiles {
     filter: brightness(0.75) contrast(1.1) saturate(0.8);
-}
-
-/* ===== NAVIGATION MODE ===== */
-#map {
-    --map-rotation: 0deg;
-    transition: none;
-}
-
-#map.nav-mode .leaflet-tile-pane,
-#map.nav-mode .leaflet-overlay-pane,
-#map.nav-mode .leaflet-shadow-pane,
-#map.nav-mode .leaflet-marker-pane {
-    transform: rotate(var(--map-rotation));
-    transform-origin: center center;
-    transition: transform 0.3s ease-out;
-}
-
-/* Ne pas cacher les contrôles pendant la navigation */
-#map.nav-mode .leaflet-control-container {
-    transform: none;
-}
-
-/* ===== USER MARKER CONTAINER ===== */
-.user-marker-container {
-    position: relative;
-    --arrow-rotation: 0deg;
-}
-
-/* ===== USER LOCATION DOT (mode normal) ===== */
-.user-location-dot {
-    width: 20px;
-    height: 20px;
-    background: var(--primary);
-    border: 3px solid white;
-    border-radius: 50%;
-    box-shadow: 0 0 10px rgba(10, 132, 255, 0.5);
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-}
-
-/* ===== USER LOCATION DOT (mode navigation) ===== */
-.user-location-dot.nav {
-    width: 16px;
-    height: 16px;
-    background: var(--primary);
-    border: 2px solid white;
-    z-index: 2;
-}
-
-/* ===== USER NAVIGATION ARROW ===== */
-.user-nav-arrow {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 0;
-    height: 0;
-    border-left: 12px solid transparent;
-    border-right: 12px solid transparent;
-    border-bottom: 28px solid var(--primary);
-    transform-origin: center bottom;
-    transform: translate(-50%, -100%) rotate(var(--arrow-rotation));
-    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
-    z-index: 1;
-    transition: transform 0.3s ease-out;
-}
-
-.user-nav-arrow::after {
-    content: '';
-    position: absolute;
-    bottom: -28px;
-    left: -7px;
-    width: 14px;
-    height: 14px;
-    background: white;
-    border-radius: 50%;
-}
-
-/* ===== HIDE LOCATE BUTTON DURING NAVIGATION ===== */
-#map.nav-mode ~ #locate-btn {
-    display: none;
-}
-
-/* Alternative: via body class */
-body.navigating #locate-btn {
-    display: none;
 }
