@@ -29,7 +29,7 @@
 
     // ===== SETTINGS (defaults) =====
     let settings = {
-        darkMode: false,
+        theme: 'system', // 'system', 'dark', 'light'
         voiceEnabled: true,
         autoReroute: true,
         showSpeed: true
@@ -113,7 +113,7 @@
     const $shareModalClose = $('share-modal-close');
     const $sharePositionBtn = $('share-position-btn');
     const $shareRouteBtn = $('share-route-btn');
-    const $darkModeToggle = $('dark-mode-toggle');
+    const $themeSelect = $('theme-select');
     const $voiceToggle = $('voice-toggle');
     const $autoRerouteToggle = $('auto-reroute-toggle');
     const $showSpeedToggle = $('show-speed-toggle');
@@ -139,7 +139,15 @@
     function loadSettings() {
         try {
             const saved = localStorage.getItem(SETTINGS_KEY);
-            if (saved) settings = { ...settings, ...JSON.parse(saved) };
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                // Migrate old darkMode boolean to theme string
+                if ('darkMode' in parsed && !('theme' in parsed)) {
+                    parsed.theme = parsed.darkMode ? 'dark' : 'light';
+                    delete parsed.darkMode;
+                }
+                settings = { ...settings, ...parsed };
+            }
         } catch (e) {}
     }
 
@@ -149,10 +157,22 @@
         } catch (e) {}
     }
 
+    function isDarkMode() {
+        if (settings.theme === 'dark') return true;
+        if (settings.theme === 'light') return false;
+        // system
+        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+
     function applySettings() {
-        // Dark mode
-        document.body.classList.toggle('light-mode', !settings.darkMode);
-        $darkModeToggle.checked = settings.darkMode;
+        // Theme
+        const dark = isDarkMode();
+        document.body.classList.toggle('light-mode', !dark);
+        $themeSelect.value = settings.theme;
+
+        // Map tiles
+        const tilePane = document.querySelector('.leaflet-tile-pane');
+        if (tilePane) tilePane.classList.toggle('dark-tiles', dark);
 
         // Voice
         $voiceToggle.checked = settings.voiceEnabled;
@@ -166,21 +186,23 @@
         // Update theme-color meta
         const metaTheme = document.querySelector('meta[name="theme-color"]');
         if (metaTheme) {
-            metaTheme.content = settings.darkMode ? '#1a1a2e' : '#f2f2f7';
+            metaTheme.content = dark ? '#1a1a2e' : '#f2f2f7';
         }
     }
 
     function setupSettingsEvents() {
-        $darkModeToggle.addEventListener('change', () => {
-            settings.darkMode = $darkModeToggle.checked;
+        $themeSelect.addEventListener('change', () => {
+            settings.theme = $themeSelect.value;
             applySettings();
-            // Update map tiles
-            const tilePane = document.querySelector('.leaflet-tile-pane');
-            if (tilePane) {
-                tilePane.classList.toggle('dark-tiles', settings.darkMode);
-            }
             saveSettings();
         });
+
+        // Listen for system theme changes
+        if (window.matchMedia) {
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+                if (settings.theme === 'system') applySettings();
+            });
+        }
 
         $voiceToggle.addEventListener('change', () => {
             settings.voiceEnabled = $voiceToggle.checked;
@@ -587,10 +609,8 @@
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
         }).addTo(map);
 
-        // Apply dark tiles based on setting
-        if (settings.darkMode) {
-            document.querySelector('.leaflet-tile-pane')?.classList.add('dark-tiles');
-        }
+        // Apply theme to tiles after map init
+        setTimeout(() => applySettings(), 100);
 
         setupMapEvents();
         autoLocateOnLoad();
