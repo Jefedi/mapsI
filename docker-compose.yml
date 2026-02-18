@@ -2,6 +2,18 @@ services:
   mapsi:
     build: .
     container_name: mapsi
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:alpine
+    container_name: mapsi-caddy
     ports:
-      - "4325:80"
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - mapsi
     restart: unless-stopped
