@@ -18,6 +18,8 @@
     const SEARCH_DEBOUNCE = 400;
     const LONG_PRESS_DURATION = 800; // ms - durée pour appui long
     const LONG_PRESS_MOVE_THRESHOLD = 10; // pixels - mouvement max avant annulation
+    const NAV_ZOOM = 18; // Zoom proche pour navigation
+    const NAV_OFFSET_RATIO = 0.35; // Position utilisateur à 35% du bas de l'écran
 
     // ===== STATE =====
     let map;
@@ -43,6 +45,11 @@
     let longPressStartX = 0;
     let longPressStartY = 0;
     let isLongPress = false;
+
+    // Navigation view state
+    let currentHeading = 0;
+    let lastHeading = 0;
+    let mapRotation = 0;
 
     // ===== DOM ELEMENTS =====
     const $searchInput = document.getElementById('search-input');
@@ -182,16 +189,33 @@
 
         const latlng = [lat, lng];
 
+        // Icône différente selon le mode (navigation ou non)
+        const iconHtml = isNavigating
+            ? '<div class="user-nav-arrow"></div><div class="user-location-dot nav"></div>'
+            : '<div class="user-location-pulse"></div><div class="user-location-dot"></div>';
+
         if (!userMarker) {
             const dotIcon = L.divIcon({
-                className: '',
-                html: '<div class="user-location-pulse"></div><div class="user-location-dot"></div>',
-                iconSize: [20, 20],
-                iconAnchor: [10, 10]
+                className: 'user-marker-container',
+                html: iconHtml,
+                iconSize: [40, 40],
+                iconAnchor: [20, 20]
             });
             userMarker = L.marker(latlng, { icon: dotIcon, zIndexOffset: 1000 }).addTo(map);
         } else {
             userMarker.setLatLng(latlng);
+            // Mettre à jour l'icône si le mode a changé
+            const currentHtml = userMarker.getIcon().options.html;
+            if ((isNavigating && !currentHtml.includes('user-nav-arrow')) ||
+                (!isNavigating && currentHtml.includes('user-nav-arrow'))) {
+                const newIcon = L.divIcon({
+                    className: 'user-marker-container',
+                    html: iconHtml,
+                    iconSize: [40, 40],
+                    iconAnchor: [20, 20]
+                });
+                userMarker.setIcon(newIcon);
+            }
         }
     }
 
@@ -487,8 +511,16 @@
         $transportModes.classList.add('hidden');
         $activeNav.classList.remove('hidden');
 
+        // Activer le mode navigation sur la carte
+        document.getElementById('map').classList.add('nav-mode');
+
         startWatchingPosition();
         updateNavigationDisplay();
+
+        // Zoom proche et centrage sur l'utilisateur
+        if (userPosition) {
+            setNavigationView(userPosition.lat, userPosition.lng, userPosition.heading);
+        }
 
         // Keep screen awake
         if ('wakeLock' in navigator) {
@@ -496,10 +528,99 @@
         }
     }
 
+    // Calculer le cap vers la prochaine étape si pas de heading GPS
+    function calculateBearingToNextStep() {
+        if (!userPosition || !routeSteps.length) return 0;
+
+        const step = routeSteps[currentStepIndex];
+        if (!step || !step.maneuver) return lastHeading;
+
+        const loc = step.maneuver.location;
+        return calculateBearing(userPosition.lat, userPosition.lng, loc[1], loc[0]);
+    }
+
+    function calculateBearing(lat1, lng1, lat2, lng2) {
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const lat1Rad = lat1 * Math.PI / 180;
+        const lat2Rad = lat2 * Math.PI / 180;
+
+        const x = Math.sin(dLng) * Math.cos(lat2Rad);
+        const y = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+                  Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLng);
+
+        let bearing = Math.atan2(x, y) * 180 / Math.PI;
+        return (bearing + 360) % 360;
+    }
+
+    function setNavigationView(lat, lng, heading) {
+        // Utiliser le heading GPS ou calculer vers la prochaine étape
+        let targetHeading = heading;
+        if (targetHeading === null || targetHeading === undefined || isNaN(targetHeading)) {
+            targetHeading = calculateBearingToNextStep();
+        }
+
+        // Lisser la rotation (éviter les sauts brusques)
+        let headingDiff = targetHeading - lastHeading;
+        if (headingDiff > 180) headingDiff -= 360;
+        if (headingDiff < -180) headingDiff += 360;
+
+        // Ne mettre à jour que si le changement est significatif (> 5°)
+        if (Math.abs(headingDiff) > 5) {
+            currentHeading = targetHeading;
+            lastHeading = targetHeading;
+            mapRotation = -targetHeading; // Rotation inverse pour que le nord soit "devant"
+
+            // Appliquer la rotation CSS sur le conteneur de tuiles
+            const mapEl = document.getElementById('map');
+            mapEl.style.setProperty('--map-rotation', `${mapRotation}deg`);
+        }
+
+        // Calculer le décalage pour positionner l'utilisateur en bas de l'écran
+        const mapSize = map.getSize();
+        const offsetY = mapSize.y * (0.5 - NAV_OFFSET_RATIO); // Décaler vers le haut
+
+        // Convertir le décalage en coordonnées géographiques
+        const targetPoint = map.project([lat, lng], NAV_ZOOM);
+        targetPoint.y -= offsetY;
+        const offsetLatLng = map.unproject(targetPoint, NAV_ZOOM);
+
+        // Appliquer la vue
+        map.setView(offsetLatLng, NAV_ZOOM, { animate: true, duration: 0.3 });
+
+        // Mettre à jour l'orientation du marqueur utilisateur
+        updateUserMarkerRotation(targetHeading);
+    }
+
+    function updateUserMarkerRotation(heading) {
+        if (!userMarker) return;
+
+        const markerEl = userMarker.getElement();
+        if (markerEl) {
+            // Compenser la rotation de la carte pour que la flèche pointe toujours vers l'avant
+            const arrowRotation = heading + mapRotation;
+            markerEl.style.setProperty('--arrow-rotation', `${arrowRotation}deg`);
+        }
+    }
+
     function stopNavigation() {
         isNavigating = false;
         $activeNav.classList.add('hidden');
         stopWatchingPosition();
+
+        // Désactiver le mode navigation
+        const mapEl = document.getElementById('map');
+        mapEl.classList.remove('nav-mode');
+        mapEl.style.setProperty('--map-rotation', '0deg');
+        mapRotation = 0;
+        lastHeading = 0;
+
+        // Réinitialiser le marqueur utilisateur (retirer la flèche)
+        if (userMarker) {
+            const markerEl = userMarker.getElement();
+            if (markerEl) {
+                markerEl.style.setProperty('--arrow-rotation', '0deg');
+            }
+        }
 
         // Clear route
         if (routeLayer) {
@@ -513,6 +634,11 @@
         if (destMarker) {
             map.removeLayer(destMarker);
             destMarker = null;
+        }
+
+        // Revenir à un zoom normal centré sur l'utilisateur
+        if (userPosition) {
+            map.setView([userPosition.lat, userPosition.lng], 15, { animate: true });
         }
 
         $transportModes.classList.add('hidden');
@@ -549,8 +675,8 @@
             $activeNavDistance.textContent = formatDistance(nextDist);
         }
 
-        // Center map on user during navigation
-        map.panTo([userLat, userLng], { animate: true, duration: 0.5 });
+        // Mettre à jour la vue navigation (zoom proche + rotation + centrage bas)
+        setNavigationView(userLat, userLng, pos.coords.heading);
 
         // Check if arrived at destination
         const destDist = haversine(userLat, userLng, destination.lat, destination.lon);
