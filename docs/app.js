@@ -93,8 +93,26 @@
         // Setup map event listeners
         setupMapEvents();
 
-        // Don't auto-request location - wait for user to click locate button
-        // This avoids error loops when permission is denied
+        // Auto-centrer sur la position de l'utilisateur au chargement
+        autoLocateOnLoad();
+    }
+
+    // ===== AUTO LOCATE ON LOAD =====
+    function autoLocateOnLoad() {
+        if (!navigator.geolocation) return;
+
+        navigator.geolocation.getCurrentPosition(
+            pos => {
+                updateUserPosition(pos);
+                map.setView([pos.coords.latitude, pos.coords.longitude], 15);
+                startWatchingPosition();
+            },
+            err => {
+                // Silently fail - user can click locate button
+                console.log('Auto-locate failed:', err.message);
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+        );
     }
 
     // ===== LOCATION PERMISSION =====
@@ -517,9 +535,22 @@
         startWatchingPosition();
         updateNavigationDisplay();
 
-        // Zoom proche et centrage sur l'utilisateur
+        // Zoom proche et centrage IMMEDIAT sur l'utilisateur (forceUpdate=true)
         if (userPosition) {
-            setNavigationView(userPosition.lat, userPosition.lng, userPosition.heading);
+            // Forcer la mise à jour immédiate de la vue navigation
+            setNavigationView(userPosition.lat, userPosition.lng, userPosition.heading, true);
+
+            // Mettre à jour aussi l'icône du marqueur immédiatement
+            const iconHtml = '<div class="user-nav-arrow"></div><div class="user-location-dot nav"></div>';
+            const newIcon = L.divIcon({
+                className: 'user-marker-container',
+                html: iconHtml,
+                iconSize: [40, 40],
+                iconAnchor: [20, 20]
+            });
+            if (userMarker) {
+                userMarker.setIcon(newIcon);
+            }
         }
 
         // Keep screen awake
@@ -552,7 +583,7 @@
         return (bearing + 360) % 360;
     }
 
-    function setNavigationView(lat, lng, heading) {
+    function setNavigationView(lat, lng, heading, forceUpdate = false) {
         // Utiliser le heading GPS ou calculer vers la prochaine étape
         let targetHeading = heading;
         if (targetHeading === null || targetHeading === undefined || isNaN(targetHeading)) {
@@ -564,8 +595,8 @@
         if (headingDiff > 180) headingDiff -= 360;
         if (headingDiff < -180) headingDiff += 360;
 
-        // Ne mettre à jour que si le changement est significatif (> 5°)
-        if (Math.abs(headingDiff) > 5) {
+        // Mettre à jour la rotation si changement significatif (> 5°) ou forceUpdate
+        if (forceUpdate || Math.abs(headingDiff) > 5) {
             currentHeading = targetHeading;
             lastHeading = targetHeading;
             mapRotation = -targetHeading; // Rotation inverse pour que le nord soit "devant"
@@ -575,7 +606,7 @@
             mapEl.style.setProperty('--map-rotation', `${mapRotation}deg`);
         }
 
-        // Calculer le décalage pour positionner l'utilisateur en bas de l'écran
+        // TOUJOURS calculer et appliquer la position (zoom + centrage)
         const mapSize = map.getSize();
         const offsetY = mapSize.y * (0.5 - NAV_OFFSET_RATIO); // Décaler vers le haut
 
@@ -584,8 +615,9 @@
         targetPoint.y -= offsetY;
         const offsetLatLng = map.unproject(targetPoint, NAV_ZOOM);
 
-        // Appliquer la vue
-        map.setView(offsetLatLng, NAV_ZOOM, { animate: true, duration: 0.3 });
+        // Appliquer la vue avec animation rapide pour le premier appel
+        const duration = forceUpdate ? 0.5 : 0.3;
+        map.setView(offsetLatLng, NAV_ZOOM, { animate: true, duration: duration });
 
         // Mettre à jour l'orientation du marqueur utilisateur
         updateUserMarkerRotation(targetHeading);
