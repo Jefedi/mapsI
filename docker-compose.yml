@@ -1,0 +1,7 @@
+services:
+  mapsi:
+    build: .
+    container_name: mapsi
+    ports:
+      - "8080:80"
+    restart: unless-stopped
