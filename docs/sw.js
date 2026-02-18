@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mapsi-v12';
+const CACHE_NAME = 'mapsi-v13';
 const STATIC_ASSETS = [
     './',
     './index.html',
@@ -32,13 +32,13 @@ self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
     // Network-only for API calls
-    if (url.hostname.includes('nominatim') || url.hostname.includes('router.project-osrm')) {
+    if (url.hostname.includes('nominatim') || url.hostname.includes('router.project-osrm') || url.hostname.includes('overpass-api') || url.hostname.includes('data.economie.gouv.fr')) {
         event.respondWith(fetch(event.request));
         return;
     }
 
-    // Cache first for tile images
-    if (url.hostname.includes('tile.openstreetmap.org')) {
+    // Cache first for tile images (OSM, CARTO, Esri, OpenTopoMap)
+    if (url.hostname.includes('tile.openstreetmap.org') || url.hostname.includes('basemaps.cartocdn.com') || url.hostname.includes('server.arcgisonline.com') || url.hostname.includes('tile.opentopomap.org')) {
         event.respondWith(
             caches.match(event.request).then(cached => {
                 if (cached) return cached;

@@ -22,6 +22,9 @@
 
         <!-- Speed Display (during navigation) -->
         <div id="speed-display" class="hidden">
+            <div id="speed-limit" class="hidden">
+                <span id="speed-limit-value"></span>
+            </div>
             <span id="speed-value">0</span>
             <span id="speed-unit">km/h</span>
         </div>
@@ -93,6 +96,19 @@
             </div>
         </div>
         <div class="settings-group">
+            <div class="settings-title">Carte</div>
+            <div class="setting-item">
+                <span>Style de carte</span>
+                <select id="map-style-select">
+                    <option value="standard">Standard</option>
+                    <option value="clair">Clair</option>
+                    <option value="sombre">Sombre</option>
+                    <option value="satellite">Satellite</option>
+                    <option value="topo">Topographique</option>
+                </select>
+            </div>
+        </div>
+        <div class="settings-group">
             <div class="settings-title">Navigation</div>
             <div class="setting-item">
                 <span>Recalcul automatique</span>
@@ -110,9 +126,23 @@
             </div>
         </div>
         <div class="settings-group">
+            <div class="settings-title">Carburant</div>
+            <div class="setting-item">
+                <span>Type</span>
+                <select id="fuel-type-select">
+                    <option value="Gazole">Gazole</option>
+                    <option value="SP95">SP95</option>
+                    <option value="SP98">SP98</option>
+                    <option value="E85">E85</option>
+                    <option value="E10">E10</option>
+                    <option value="GPLc">GPLc</option>
+                </select>
+            </div>
+        </div>
+        <div class="settings-group">
             <div class="settings-title">A propos</div>
             <div class="setting-info">
-                <span>MapsI v2.0</span>
+                <span>MapsI v3.0</span>
                 <span class="text-secondary">Navigation GPS gratuite</span>
             </div>
         </div>
@@ -189,6 +219,11 @@
                 <svg viewBox="0 0 24 24" width="22" height="22"><circle cx="6" cy="17" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="17" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6 17l3-7h4l2 4h3M11 6a1 1 0 100-2 1 1 0 000 2zM12 10h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 <span>Velo</span>
             </button>
+        </div>
+        <!-- Waypoints / Multi-stops -->
+        <div id="waypoints-section">
+            <div id="waypoints-list"></div>
+            <button id="add-waypoint-btn">+ Ajouter une etape</button>
         </div>
         <div id="nav-instruction">
             <span id="nav-step-text"></span>

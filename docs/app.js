@@ -1,12 +1,10 @@
 // ==========================================
-// MapsI PWA v2.0 - Navigation GPS avec OpenStreetMap
-// 12 fonctionnalités avancées
+// MapsI PWA v3.0 - Navigation GPS avec OpenStreetMap
 // ==========================================
 
 (function() {
     'use strict';
 
-    // ===== REGISTER SERVICE WORKER =====
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
@@ -14,6 +12,7 @@
     // ===== CONFIG =====
     const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
     const OSRM_URL = 'https://router.project-osrm.org';
+    const FUEL_API = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records';
     const DEFAULT_CENTER = [46.603354, 1.888334];
     const DEFAULT_ZOOM = 6;
     const SEARCH_DEBOUNCE = 400;
@@ -24,12 +23,22 @@
     const HISTORY_KEY = 'mapsi_history';
     const FAVORITES_KEY = 'mapsi_favorites';
     const SETTINGS_KEY = 'mapsi_settings';
-    const REROUTE_THRESHOLD = 50; // meters off route before reroute
-    const POI_RADIUS = 5000; // meters
+    const REROUTE_THRESHOLD = 50;
+    const POI_RADIUS = 5000;
 
-    // ===== SETTINGS (defaults) =====
+    const MAP_TILES = {
+        standard: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attr: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>', maxZoom: 19 },
+        clair: { url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr: '&copy; OSM &copy; CARTO', maxZoom: 20 },
+        sombre: { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr: '&copy; OSM &copy; CARTO', maxZoom: 20 },
+        satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr: '&copy; Esri', maxZoom: 18 },
+        topo: { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attr: '&copy; OpenTopoMap', maxZoom: 17 }
+    };
+
+    // ===== SETTINGS =====
     let settings = {
-        theme: 'system', // 'system', 'dark', 'light'
+        theme: 'system',
+        mapStyle: 'standard',
+        fuelType: 'SP95',
         voiceEnabled: true,
         autoReroute: true,
         showSpeed: true
@@ -41,8 +50,10 @@
     let routeLayer, routeShadowLayer;
     let altRouteLayers = [];
     let poiMarkers = [];
+    let waypointMarkers = [];
     let userPosition = null;
     let destination = null;
+    let waypoints = [];
     let routeData = null;
     let allRoutes = [];
     let selectedRouteIndex = 0;
@@ -59,13 +70,15 @@
     let favorites = [];
     let lastSpokenStep = -1;
     let rerouteTimeout = null;
+    let currentSpeedLimit = null;
+    let speedLimitTimeout = null;
+    let addingWaypoint = false;
 
-    // Long press state
     let longPressTimer = null;
     let longPressStartX = 0;
     let longPressStartY = 0;
 
-    // ===== DOM ELEMENTS =====
+    // ===== DOM =====
     const $ = id => document.getElementById(id);
     const $mapView = $('map-view');
     const $searchView = $('search-view');
@@ -98,6 +111,8 @@
     const $etaTime = $('eta-time');
     const $speedDisplay = $('speed-display');
     const $speedValue = $('speed-value');
+    const $speedLimit = $('speed-limit');
+    const $speedLimitValue = $('speed-limit-value');
     const $loading = $('loading');
     const $toolbar = $('toolbar');
     const $historyList = $('history-list');
@@ -114,9 +129,13 @@
     const $sharePositionBtn = $('share-position-btn');
     const $shareRouteBtn = $('share-route-btn');
     const $themeSelect = $('theme-select');
+    const $mapStyleSelect = $('map-style-select');
+    const $fuelTypeSelect = $('fuel-type-select');
     const $voiceToggle = $('voice-toggle');
     const $autoRerouteToggle = $('auto-reroute-toggle');
     const $showSpeedToggle = $('show-speed-toggle');
+    const $waypointsList = $('waypoints-list');
+    const $addWaypointBtn = $('add-waypoint-btn');
 
     // ===== INIT =====
     function init() {
@@ -131,17 +150,17 @@
         setupFavoriteEvents();
         setupShareEvents();
         setupPOIEvents();
+        setupWaypointEvents();
         renderHistory();
         renderFavorites();
     }
 
-    // ===== SETTINGS (9. Page Parametres + 7. Mode jour/nuit) =====
+    // ===== SETTINGS =====
     function loadSettings() {
         try {
             const saved = localStorage.getItem(SETTINGS_KEY);
             if (saved) {
                 const parsed = JSON.parse(saved);
-                // Migrate old darkMode boolean to theme string
                 if ('darkMode' in parsed && !('theme' in parsed)) {
                     parsed.theme = parsed.darkMode ? 'dark' : 'light';
                     delete parsed.darkMode;
@@ -152,42 +171,32 @@
     }
 
     function saveSettings() {
-        try {
-            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-        } catch (e) {}
+        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {}
     }
 
     function isDarkMode() {
         if (settings.theme === 'dark') return true;
         if (settings.theme === 'light') return false;
-        // system
-        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        return window.matchMedia?.('(prefers-color-scheme: dark)').matches;
     }
 
     function applySettings() {
-        // Theme
         const dark = isDarkMode();
         document.body.classList.toggle('light-mode', !dark);
         $themeSelect.value = settings.theme;
-
-        // Map tiles
-        const tilePane = document.querySelector('.leaflet-tile-pane');
-        if (tilePane) tilePane.classList.toggle('dark-tiles', dark);
-
-        // Voice
+        $mapStyleSelect.value = settings.mapStyle;
+        $fuelTypeSelect.value = settings.fuelType;
         $voiceToggle.checked = settings.voiceEnabled;
-
-        // Auto reroute
         $autoRerouteToggle.checked = settings.autoReroute;
-
-        // Show speed
         $showSpeedToggle.checked = settings.showSpeed;
 
-        // Update theme-color meta
-        const metaTheme = document.querySelector('meta[name="theme-color"]');
-        if (metaTheme) {
-            metaTheme.content = dark ? '#1a1a2e' : '#f2f2f7';
+        const tilePane = document.querySelector('.leaflet-tile-pane');
+        if (tilePane) {
+            tilePane.classList.toggle('dark-tiles', dark && settings.mapStyle === 'standard');
         }
+
+        const metaTheme = document.querySelector('meta[name="theme-color"]');
+        if (metaTheme) metaTheme.content = dark ? '#1a1a2e' : '#f2f2f7';
     }
 
     function setupSettingsEvents() {
@@ -197,12 +206,17 @@
             saveSettings();
         });
 
-        // Listen for system theme changes
-        if (window.matchMedia) {
-            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-                if (settings.theme === 'system') applySettings();
-            });
-        }
+        $mapStyleSelect.addEventListener('change', () => {
+            settings.mapStyle = $mapStyleSelect.value;
+            changeMapStyle(settings.mapStyle);
+            applySettings();
+            saveSettings();
+        });
+
+        $fuelTypeSelect.addEventListener('change', () => {
+            settings.fuelType = $fuelTypeSelect.value;
+            saveSettings();
+        });
 
         $voiceToggle.addEventListener('change', () => {
             settings.voiceEnabled = $voiceToggle.checked;
@@ -219,26 +233,35 @@
             if (!settings.showSpeed) $speedDisplay.classList.add('hidden');
             saveSettings();
         });
+
+        if (window.matchMedia) {
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+                if (settings.theme === 'system') applySettings();
+            });
+        }
+    }
+
+    // ===== 10. MAP STYLES =====
+    function changeMapStyle(style) {
+        const tile = MAP_TILES[style] || MAP_TILES.standard;
+        if (tileLayer) map.removeLayer(tileLayer);
+        tileLayer = L.tileLayer(tile.url, {
+            maxZoom: tile.maxZoom,
+            attribution: tile.attr
+        }).addTo(map);
     }
 
     // ===== VIEW SWITCHING =====
     function switchView(view) {
         currentView = view;
-
         document.querySelectorAll('.toolbar-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.view === view);
         });
-
         $mapView.classList.toggle('hidden', view !== 'map');
         $searchView.classList.toggle('hidden', view !== 'search');
         $settingsView.classList.toggle('hidden', view !== 'settings');
-
-        if (view === 'map') {
-            setTimeout(() => map.invalidateSize(), 100);
-        } else if (view === 'search') {
-            renderHistory();
-            renderFavorites();
-        }
+        if (view === 'map') setTimeout(() => map.invalidateSize(), 100);
+        else if (view === 'search') { renderHistory(); renderFavorites(); }
     }
 
     function setupToolbar() {
@@ -252,133 +275,92 @@
         try {
             const saved = localStorage.getItem(HISTORY_KEY);
             searchHistory = saved ? JSON.parse(saved) : [];
-        } catch (e) {
-            searchHistory = [];
-        }
+        } catch (e) { searchHistory = []; }
     }
 
     function saveHistory() {
-        try {
-            localStorage.setItem(HISTORY_KEY, JSON.stringify(searchHistory));
-        } catch (e) {}
+        try { localStorage.setItem(HISTORY_KEY, JSON.stringify(searchHistory)); } catch (e) {}
     }
 
     function addToHistory(item) {
-        searchHistory = searchHistory.filter(h =>
-            !(h.lat === item.lat && h.lon === item.lon)
-        );
-        searchHistory.unshift({
-            name: item.name,
-            address: item.address || '',
-            lat: item.lat,
-            lon: item.lon,
-            timestamp: Date.now()
-        });
-        if (searchHistory.length > MAX_HISTORY) {
-            searchHistory = searchHistory.slice(0, MAX_HISTORY);
-        }
+        searchHistory = searchHistory.filter(h => !(h.lat === item.lat && h.lon === item.lon));
+        searchHistory.unshift({ name: item.name, address: item.address || '', lat: item.lat, lon: item.lon, timestamp: Date.now() });
+        if (searchHistory.length > MAX_HISTORY) searchHistory = searchHistory.slice(0, MAX_HISTORY);
         saveHistory();
-    }
-
-    function clearHistory() {
-        searchHistory = [];
-        saveHistory();
-        renderHistory();
     }
 
     function renderHistory() {
-        if (searchHistory.length === 0) {
-            $historyList.innerHTML = '';
-            $historyEmpty.classList.remove('hidden');
-            return;
-        }
-
+        if (searchHistory.length === 0) { $historyList.innerHTML = ''; $historyEmpty.classList.remove('hidden'); return; }
         $historyEmpty.classList.add('hidden');
         $historyList.innerHTML = searchHistory.map((item, i) => `
             <div class="history-item" data-index="${i}">
-                <div class="history-icon">
-                    <svg viewBox="0 0 24 24">
-                        <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/>
-                        <path d="M12 6v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                    </svg>
-                </div>
-                <div class="history-text">
-                    <div class="history-name">${escapeHtml(item.name)}</div>
-                    ${item.address ? `<div class="history-address">${escapeHtml(item.address)}</div>` : ''}
-                </div>
+                <div class="history-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 6v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+                <div class="history-text"><div class="history-name">${escapeHtml(item.name)}</div>${item.address ? `<div class="history-address">${escapeHtml(item.address)}</div>` : ''}</div>
             </div>
         `).join('');
-
         $historyList.querySelectorAll('.history-item').forEach(el => {
             el.addEventListener('click', () => {
                 const item = searchHistory[parseInt(el.dataset.index)];
-                if (item) selectHistoryItem(item);
+                if (item) { switchView('map'); $searchInput.value = item.name; $searchClear.classList.remove('hidden'); setDestination(item.lat, item.lon, item.name); addToHistory(item); }
             });
         });
     }
 
-    function selectHistoryItem(item) {
-        switchView('map');
-        $searchInput.value = item.name;
-        $searchClear.classList.remove('hidden');
-        setDestination(item.lat, item.lon, item.name);
-        addToHistory(item);
-    }
-
     function setupHistoryEvents() {
         $historyClearBtn.addEventListener('click', () => {
-            if (confirm('Effacer tout l\'historique ?')) clearHistory();
+            if (confirm('Effacer tout l\'historique ?')) { searchHistory = []; saveHistory(); renderHistory(); }
         });
     }
 
-    // ===== FAVORITES (6. Favoris) =====
+    // ===== 6. FAVORITES (with delete) =====
     function loadFavorites() {
-        try {
-            const saved = localStorage.getItem(FAVORITES_KEY);
-            favorites = saved ? JSON.parse(saved) : [];
-        } catch (e) {
-            favorites = [];
-        }
+        try { const saved = localStorage.getItem(FAVORITES_KEY); favorites = saved ? JSON.parse(saved) : []; } catch (e) { favorites = []; }
     }
 
     function saveFavorites() {
-        try {
-            localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
-        } catch (e) {}
+        try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); } catch (e) {}
     }
+
+    const FAV_ICONS = {
+        home: '<path d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3v-6h6v6h3a1 1 0 001-1V10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+        work: '<rect x="2" y="7" width="20" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2" fill="none" stroke="currentColor" stroke-width="1.5"/>',
+        star: '<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>',
+        heart: '<path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" fill="none" stroke="currentColor" stroke-width="1.5"/>'
+    };
 
     function renderFavorites() {
         if (favorites.length === 0) {
             $favoritesList.innerHTML = '<div style="padding:12px;color:var(--text-secondary);font-size:14px;text-align:center;grid-column:1/-1">Aucun favori</div>';
             return;
         }
-
-        const iconSVGs = {
-            home: '<path d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3v-6h6v6h3a1 1 0 001-1V10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
-            work: '<rect x="2" y="7" width="20" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2" fill="none" stroke="currentColor" stroke-width="1.5"/>',
-            star: '<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>',
-            heart: '<path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" fill="none" stroke="currentColor" stroke-width="1.5"/>'
-        };
-
         $favoritesList.innerHTML = favorites.map((fav, i) => `
             <div class="favorite-item" data-index="${i}">
-                <div class="favorite-icon">
-                    <svg viewBox="0 0 24 24">${iconSVGs[fav.icon] || iconSVGs.star}</svg>
-                </div>
+                <div class="favorite-icon"><svg viewBox="0 0 24 24">${FAV_ICONS[fav.icon] || FAV_ICONS.star}</svg></div>
                 <div class="favorite-name">${escapeHtml(fav.name)}</div>
             </div>
         `).join('');
-
         $favoritesList.querySelectorAll('.favorite-item').forEach(el => {
+            // Click -> navigate
             el.addEventListener('click', () => {
                 const fav = favorites[parseInt(el.dataset.index)];
-                if (fav) {
-                    switchView('map');
-                    $searchInput.value = fav.name;
-                    $searchClear.classList.remove('hidden');
-                    setDestination(fav.lat, fav.lon, fav.name);
-                }
+                if (fav) { switchView('map'); $searchInput.value = fav.name; $searchClear.classList.remove('hidden'); setDestination(fav.lat, fav.lon, fav.name); }
             });
+            // 1. Long press -> delete
+            let lpTimer = null;
+            el.addEventListener('touchstart', (e) => {
+                lpTimer = setTimeout(() => {
+                    lpTimer = null;
+                    const idx = parseInt(el.dataset.index);
+                    const fav = favorites[idx];
+                    if (fav && confirm(`Supprimer "${fav.name}" des favoris ?`)) {
+                        favorites.splice(idx, 1);
+                        saveFavorites();
+                        renderFavorites();
+                    }
+                }, 600);
+            }, { passive: true });
+            el.addEventListener('touchend', () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } });
+            el.addEventListener('touchmove', () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } });
         });
     }
 
@@ -386,84 +368,93 @@
 
     function setupFavoriteEvents() {
         $addFavoriteBtn.addEventListener('click', () => {
-            if (!userPosition) {
-                alert('Position non disponible');
-                return;
-            }
+            if (!userPosition) { alert('Position non disponible'); return; }
             $favoriteName.value = '';
             selectedFavIcon = 'home';
-            document.querySelectorAll('.fav-icon-btn').forEach(b => {
-                b.classList.toggle('active', b.dataset.icon === 'home');
-            });
+            document.querySelectorAll('.fav-icon-btn').forEach(b => b.classList.toggle('active', b.dataset.icon === 'home'));
             $favoriteModal.classList.remove('hidden');
         });
-
-        $favoriteModalClose.addEventListener('click', () => {
-            $favoriteModal.classList.add('hidden');
-        });
-
-        $favoriteModal.addEventListener('click', (e) => {
-            if (e.target === $favoriteModal) $favoriteModal.classList.add('hidden');
-        });
-
+        $favoriteModalClose.addEventListener('click', () => $favoriteModal.classList.add('hidden'));
+        $favoriteModal.addEventListener('click', (e) => { if (e.target === $favoriteModal) $favoriteModal.classList.add('hidden'); });
         document.querySelectorAll('.fav-icon-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 selectedFavIcon = btn.dataset.icon;
-                document.querySelectorAll('.fav-icon-btn').forEach(b => {
-                    b.classList.toggle('active', b === btn);
-                });
+                document.querySelectorAll('.fav-icon-btn').forEach(b => b.classList.toggle('active', b === btn));
             });
         });
-
         $saveFavoriteBtn.addEventListener('click', () => {
             const name = $favoriteName.value.trim();
-            if (!name) {
-                alert('Entrez un nom pour le favori');
-                return;
-            }
+            if (!name) { alert('Entrez un nom'); return; }
             if (!userPosition) return;
-
-            favorites.push({
-                name,
-                icon: selectedFavIcon,
-                lat: userPosition.lat,
-                lon: userPosition.lng
-            });
-            saveFavorites();
-            renderFavorites();
-            $favoriteModal.classList.add('hidden');
+            favorites.push({ name, icon: selectedFavIcon, lat: userPosition.lat, lon: userPosition.lng });
+            saveFavorites(); renderFavorites(); $favoriteModal.classList.add('hidden');
         });
     }
 
-    // ===== SHARE (11. Partager position) =====
+    // ===== 5. MULTI-STOPS / WAYPOINTS =====
+    function setupWaypointEvents() {
+        $addWaypointBtn.addEventListener('click', () => {
+            addingWaypoint = true;
+            $navPanel.classList.add('hidden');
+            $searchInput.value = '';
+            $searchInput.placeholder = 'Rechercher une etape...';
+            $searchInput.focus();
+        });
+    }
+
+    function addWaypoint(lat, lon, name) {
+        waypoints.push({ lat, lon, name });
+        const icon = L.divIcon({
+            className: 'destination-marker',
+            html: '<svg viewBox="0 0 24 36"><circle cx="12" cy="12" r="10" fill="#ff9f0a" stroke="white" stroke-width="3"/><text x="12" y="16" text-anchor="middle" fill="white" font-size="12" font-weight="bold">' + waypoints.length + '</text></svg>',
+            iconSize: [32, 40], iconAnchor: [16, 40]
+        });
+        const marker = L.marker([lat, lon], { icon }).addTo(map);
+        waypointMarkers.push(marker);
+        renderWaypoints();
+        calculateRoute();
+    }
+
+    function removeWaypoint(index) {
+        waypoints.splice(index, 1);
+        if (waypointMarkers[index]) { map.removeLayer(waypointMarkers[index]); waypointMarkers.splice(index, 1); }
+        renderWaypoints();
+        if (destination) calculateRoute();
+    }
+
+    function renderWaypoints() {
+        $waypointsList.innerHTML = waypoints.map((wp, i) => `
+            <div class="waypoint-item">
+                <div class="waypoint-dot"></div>
+                <div class="waypoint-name">${escapeHtml(wp.name)}</div>
+                <button class="waypoint-remove" data-index="${i}">&times;</button>
+            </div>
+        `).join('');
+        $waypointsList.querySelectorAll('.waypoint-remove').forEach(btn => {
+            btn.addEventListener('click', (e) => { e.stopPropagation(); removeWaypoint(parseInt(btn.dataset.index)); });
+        });
+    }
+
+    function clearWaypoints() {
+        waypointMarkers.forEach(m => map.removeLayer(m));
+        waypointMarkers = [];
+        waypoints = [];
+        renderWaypoints();
+    }
+
+    // ===== SHARE =====
     function setupShareEvents() {
-        $navShareBtn.addEventListener('click', () => {
-            $shareModal.classList.remove('hidden');
-        });
-
-        $shareModalClose.addEventListener('click', () => {
-            $shareModal.classList.add('hidden');
-        });
-
-        $shareModal.addEventListener('click', (e) => {
-            if (e.target === $shareModal) $shareModal.classList.add('hidden');
-        });
-
+        $navShareBtn.addEventListener('click', () => $shareModal.classList.remove('hidden'));
+        $shareModalClose.addEventListener('click', () => $shareModal.classList.add('hidden'));
+        $shareModal.addEventListener('click', (e) => { if (e.target === $shareModal) $shareModal.classList.add('hidden'); });
         $sharePositionBtn.addEventListener('click', () => {
-            if (!userPosition) {
-                alert('Position non disponible');
-                return;
-            }
+            if (!userPosition) { alert('Position non disponible'); return; }
             const url = `https://www.openstreetmap.org/?mlat=${userPosition.lat}&mlon=${userPosition.lng}#map=16/${userPosition.lat}/${userPosition.lng}`;
             shareContent('Ma position', url);
             $shareModal.classList.add('hidden');
         });
-
         $shareRouteBtn.addEventListener('click', () => {
-            if (!userPosition || !destination) {
-                alert('Aucun itineraire actif');
-                return;
-            }
+            if (!userPosition || !destination) { alert('Aucun itineraire actif'); return; }
             const url = `https://www.openstreetmap.org/directions?from=${userPosition.lat},${userPosition.lng}&to=${destination.lat},${destination.lon}`;
             shareContent('Mon itineraire MapsI', url);
             $shareModal.classList.add('hidden');
@@ -471,60 +462,33 @@
     }
 
     function shareContent(title, url) {
-        if (navigator.share) {
-            navigator.share({ title, url }).catch(() => {});
-        } else {
-            navigator.clipboard.writeText(url).then(() => {
-                alert('Lien copie dans le presse-papiers !');
-            }).catch(() => {
-                alert(url);
-            });
-        }
+        if (navigator.share) navigator.share({ title, url }).catch(() => {});
+        else navigator.clipboard?.writeText(url).then(() => alert('Lien copie !')).catch(() => alert(url));
     }
 
-    // ===== POI (12. Points d'interet) =====
+    // ===== 12. POI + FUEL PRICES =====
     function setupPOIEvents() {
-        $poiBtn.addEventListener('click', () => {
-            $poiPanel.classList.toggle('hidden');
-        });
-
-        $poiClose.addEventListener('click', () => {
-            $poiPanel.classList.add('hidden');
-            clearPOIMarkers();
-        });
-
+        $poiBtn.addEventListener('click', () => $poiPanel.classList.toggle('hidden'));
+        $poiClose.addEventListener('click', () => { $poiPanel.classList.add('hidden'); clearPOIMarkers(); });
         document.querySelectorAll('.poi-cat-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.poi-cat-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                searchPOI(btn.dataset.cat);
+                if (btn.dataset.cat === 'fuel') searchFuelWithPrices();
+                else searchPOI(btn.dataset.cat);
             });
         });
     }
 
-    const POI_QUERIES = {
-        fuel: '[amenity=fuel]',
-        restaurant: '[amenity=restaurant]',
-        parking: '[amenity=parking]',
-        pharmacy: '[amenity=pharmacy]'
-    };
+    const POI_QUERIES = { fuel: '[amenity=fuel]', restaurant: '[amenity=restaurant]', parking: '[amenity=parking]', pharmacy: '[amenity=pharmacy]' };
 
     async function searchPOI(category) {
-        if (!userPosition) {
-            alert('Position non disponible');
-            return;
-        }
-
+        if (!userPosition) { alert('Position non disponible'); return; }
         $poiResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Recherche...</div>';
-
         const query = POI_QUERIES[category];
-        const lat = userPosition.lat;
-        const lng = userPosition.lng;
-        const overpassData = `[out:json][timeout:10];node${query}(around:${POI_RADIUS},${lat},${lng});out body 10;`;
-        const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassData)}`;
-
+        const overpassData = `[out:json][timeout:10];node${query}(around:${POI_RADIUS},${userPosition.lat},${userPosition.lng});out body 10;`;
         try {
-            const resp = await fetch(overpassUrl);
+            const resp = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassData)}`);
             const data = await resp.json();
             displayPOIResults(data.elements, category);
         } catch (err) {
@@ -532,50 +496,68 @@
         }
     }
 
-    function displayPOIResults(elements, category) {
-        clearPOIMarkers();
+    async function searchFuelWithPrices() {
+        if (!userPosition) { alert('Position non disponible'); return; }
+        $poiResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Recherche des stations et prix...</div>';
+        try {
+            const fuelType = settings.fuelType;
+            const lat = userPosition.lat;
+            const lng = userPosition.lng;
+            const dist = POI_RADIUS / 1000;
+            const where = `within_distance(geom, geom'POINT(${lng} ${lat})', ${POI_RADIUS}m)`;
+            const url = `${FUEL_API}?limit=15&where=${encodeURIComponent(where)}&select=adresse,ville,cp,geom,prix,horaires`;
+            const resp = await fetch(url);
+            const data = await resp.json();
+            displayFuelResults(data.results || [], fuelType);
+        } catch (err) {
+            // Fallback to Overpass without prices
+            searchPOI('fuel');
+        }
+    }
 
-        if (!elements || elements.length === 0) {
-            $poiResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Aucun resultat a proximite</div>';
+    function displayFuelResults(stations, fuelType) {
+        clearPOIMarkers();
+        if (!stations || stations.length === 0) {
+            $poiResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Aucune station a proximite</div>';
             return;
         }
 
-        // Sort by distance
-        elements.forEach(el => {
-            el._dist = haversine(userPosition.lat, userPosition.lng, el.lat, el.lon);
-        });
-        elements.sort((a, b) => a._dist - b._dist);
+        const results = stations.map(s => {
+            const coords = s.geom;
+            if (!coords) return null;
+            const lat = coords.lat;
+            const lon = coords.lon;
+            const dist = haversine(userPosition.lat, userPosition.lng, lat, lon);
+            let price = null;
+            if (s.prix) {
+                try {
+                    const prixArr = typeof s.prix === 'string' ? JSON.parse(s.prix) : s.prix;
+                    if (Array.isArray(prixArr)) {
+                        const found = prixArr.find(p => p.nom === fuelType || p['@nom'] === fuelType);
+                        if (found) price = parseFloat(found.valeur || found['@valeur']);
+                    }
+                } catch (e) {}
+            }
+            return { name: s.adresse || 'Station', ville: s.ville || '', lat, lon, dist, price };
+        }).filter(Boolean).sort((a, b) => a.dist - b.dist);
 
-        $poiResults.innerHTML = elements.map((el, i) => {
-            const name = el.tags?.name || category.charAt(0).toUpperCase() + category.slice(1);
-            const dist = formatDistance(el._dist);
-            return `
-                <div class="poi-item" data-index="${i}" data-lat="${el.lat}" data-lon="${el.lon}" data-name="${escapeHtml(name)}">
-                    <div class="poi-item-icon">
-                        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="9" r="2.5" fill="currentColor"/></svg>
-                    </div>
-                    <div class="poi-item-text">
-                        <div class="poi-item-name">${escapeHtml(name)}</div>
-                        <div class="poi-item-dist">${dist}</div>
-                    </div>
+        $poiResults.innerHTML = results.map((r, i) => `
+            <div class="poi-item" data-index="${i}" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${escapeHtml(r.name + ', ' + r.ville)}">
+                <div class="poi-item-icon"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 22V6a2 2 0 012-2h8a2 2 0 012 2v16M3 22h12M15 10h2a2 2 0 012 2v5a2 2 0 002 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                <div class="poi-item-text">
+                    <div class="poi-item-name">${escapeHtml(r.name)}</div>
+                    <div class="poi-item-dist">${r.ville} - ${formatDistance(r.dist)}</div>
                 </div>
-            `;
-        }).join('');
+                ${r.price ? `<span class="poi-item-price">${r.price.toFixed(3)} &euro;</span>` : ''}
+            </div>
+        `).join('');
 
-        // Add markers on map
-        elements.forEach(el => {
-            const name = el.tags?.name || category;
-            const marker = L.circleMarker([el.lat, el.lon], {
-                radius: 8,
-                fillColor: '#ff9f0a',
-                color: '#fff',
-                weight: 2,
-                fillOpacity: 0.9
-            }).bindPopup(name).addTo(map);
+        results.forEach(r => {
+            const label = r.price ? `${r.price.toFixed(3)}€` : 'Station';
+            const marker = L.circleMarker([r.lat, r.lon], { radius: 8, fillColor: '#ff9f0a', color: '#fff', weight: 2, fillOpacity: 0.9 }).bindPopup(label).addTo(map);
             poiMarkers.push(marker);
         });
 
-        // Click handlers
         $poiResults.querySelectorAll('.poi-item').forEach(el => {
             el.addEventListener('click', () => {
                 const lat = parseFloat(el.dataset.lat);
@@ -590,145 +572,134 @@
         });
     }
 
-    function clearPOIMarkers() {
-        poiMarkers.forEach(m => map.removeLayer(m));
-        poiMarkers = [];
+    function displayPOIResults(elements, category) {
+        clearPOIMarkers();
+        if (!elements || elements.length === 0) {
+            $poiResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Aucun resultat</div>';
+            return;
+        }
+        elements.forEach(el => { el._dist = haversine(userPosition.lat, userPosition.lng, el.lat, el.lon); });
+        elements.sort((a, b) => a._dist - b._dist);
+        $poiResults.innerHTML = elements.map((el, i) => {
+            const name = el.tags?.name || category.charAt(0).toUpperCase() + category.slice(1);
+            return `<div class="poi-item" data-lat="${el.lat}" data-lon="${el.lon}" data-name="${escapeHtml(name)}">
+                <div class="poi-item-icon"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="9" r="2.5" fill="currentColor"/></svg></div>
+                <div class="poi-item-text"><div class="poi-item-name">${escapeHtml(name)}</div><div class="poi-item-dist">${formatDistance(el._dist)}</div></div>
+            </div>`;
+        }).join('');
+        elements.forEach(el => {
+            const marker = L.circleMarker([el.lat, el.lon], { radius: 8, fillColor: '#ff9f0a', color: '#fff', weight: 2, fillOpacity: 0.9 }).bindPopup(el.tags?.name || category).addTo(map);
+            poiMarkers.push(marker);
+        });
+        $poiResults.querySelectorAll('.poi-item').forEach(el => {
+            el.addEventListener('click', () => {
+                $poiPanel.classList.add('hidden');
+                setDestination(parseFloat(el.dataset.lat), parseFloat(el.dataset.lon), el.dataset.name);
+                $searchInput.value = el.dataset.name;
+                $searchClear.classList.remove('hidden');
+                addToHistory({ name: el.dataset.name, address: '', lat: parseFloat(el.dataset.lat), lon: parseFloat(el.dataset.lon) });
+            });
+        });
     }
 
-    // ===== INIT MAP =====
+    function clearPOIMarkers() { poiMarkers.forEach(m => map.removeLayer(m)); poiMarkers = []; }
+
+    // ===== MAP INIT =====
     function initMap() {
-        map = L.map('map', {
-            center: DEFAULT_CENTER,
-            zoom: DEFAULT_ZOOM,
-            zoomControl: false,
-            attributionControl: true
-        });
-
-        tileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-        }).addTo(map);
-
-        // Apply theme to tiles after map init
+        map = L.map('map', { center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM, zoomControl: false, attributionControl: true });
+        const tile = MAP_TILES[settings.mapStyle] || MAP_TILES.standard;
+        tileLayer = L.tileLayer(tile.url, { maxZoom: tile.maxZoom, attribution: tile.attr }).addTo(map);
         setTimeout(() => applySettings(), 100);
-
         setupMapEvents();
         autoLocateOnLoad();
     }
 
     function autoLocateOnLoad() {
         if (!navigator.geolocation) return;
-
         navigator.geolocation.getCurrentPosition(
-            pos => {
-                updateUserPosition(pos);
-                map.setView([pos.coords.latitude, pos.coords.longitude], 15);
-                startWatchingPosition();
-            },
-            () => {},
-            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+            pos => { updateUserPosition(pos); map.setView([pos.coords.latitude, pos.coords.longitude], 15); startWatchingPosition(); },
+            () => {}, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
         );
     }
 
     // ===== USER LOCATION =====
     function locateUser() {
         if (!navigator.geolocation) return;
-
         showLoading();
         navigator.geolocation.getCurrentPosition(
-            pos => {
-                hideLoading();
-                updateUserPosition(pos);
-                map.flyTo([pos.coords.latitude, pos.coords.longitude], 16, { duration: 0.8 });
-            },
-            err => {
-                hideLoading();
-                if (err.code === 1 && !locationErrorShown) {
-                    locationErrorShown = true;
-                    alert('Permission refusee.\n\nActivez la localisation dans les reglages.');
-                } else if (err.code === 2) {
-                    alert('Position indisponible.');
-                }
-            },
+            pos => { hideLoading(); updateUserPosition(pos); map.flyTo([pos.coords.latitude, pos.coords.longitude], 16, { duration: 0.8 }); },
+            err => { hideLoading(); if (err.code === 1 && !locationErrorShown) { locationErrorShown = true; alert('Permission refusee.'); } },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
         );
     }
 
     function startWatchingPosition() {
         if (watchId !== null || !navigator.geolocation) return;
-
-        watchId = navigator.geolocation.watchPosition(
-            pos => {
-                updateUserPosition(pos);
-                if (isNavigating) updateNavigation(pos);
-            },
-            () => {},
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 }
-        );
-        isTracking = true;
-        $locateBtn.classList.add('tracking');
+        watchId = navigator.geolocation.watchPosition(pos => { updateUserPosition(pos); if (isNavigating) updateNavigation(pos); }, () => {}, { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 });
+        isTracking = true; $locateBtn.classList.add('tracking');
     }
 
     function stopWatchingPosition() {
-        if (watchId !== null) {
-            navigator.geolocation.clearWatch(watchId);
-            watchId = null;
-        }
-        isTracking = false;
-        $locateBtn.classList.remove('tracking');
+        if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+        isTracking = false; $locateBtn.classList.remove('tracking');
     }
 
     function updateUserPosition(pos) {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        const speed = pos.coords.speed;
+        const lat = pos.coords.latitude, lng = pos.coords.longitude, speed = pos.coords.speed;
         userPosition = { lat, lng, accuracy: pos.coords.accuracy, heading: pos.coords.heading, speed };
-
-        const latlng = [lat, lng];
         const icon = isNavigating ? createNavIcon() : createDotIcon();
-
-        if (!userMarker) {
-            userMarker = L.marker(latlng, { icon: icon, zIndexOffset: 1000 }).addTo(map);
-        } else {
-            userMarker.setLatLng(latlng);
-            userMarker.setIcon(icon);
-        }
-
-        // 4. Speed display
+        if (!userMarker) userMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(map);
+        else { userMarker.setLatLng([lat, lng]); userMarker.setIcon(icon); }
         updateSpeedDisplay(speed);
     }
 
-    // ===== 4. SPEED DISPLAY =====
     function updateSpeedDisplay(speed) {
-        if (!isNavigating || !settings.showSpeed) {
-            $speedDisplay.classList.add('hidden');
-            return;
-        }
-
+        if (!isNavigating || !settings.showSpeed) { $speedDisplay.classList.add('hidden'); return; }
         $speedDisplay.classList.remove('hidden');
         const kmh = (speed && speed > 0) ? Math.round(speed * 3.6) : 0;
         $speedValue.textContent = kmh;
+        // 7. Speed limit warning
+        if (currentSpeedLimit && kmh > currentSpeedLimit) {
+            $speedValue.classList.add('speed-warning');
+        } else {
+            $speedValue.classList.remove('speed-warning');
+        }
+    }
+
+    // ===== 7. SPEED LIMIT =====
+    async function fetchSpeedLimit(lat, lng) {
+        if (speedLimitTimeout) return;
+        speedLimitTimeout = setTimeout(() => { speedLimitTimeout = null; }, 10000); // Query every 10s max
+        try {
+            const query = `[out:json][timeout:5];way(around:30,${lat},${lng})[maxspeed];out tags 1;`;
+            const resp = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+            const data = await resp.json();
+            if (data.elements && data.elements.length > 0) {
+                const maxspeed = data.elements[0].tags?.maxspeed;
+                if (maxspeed) {
+                    const limit = parseInt(maxspeed);
+                    if (!isNaN(limit)) {
+                        currentSpeedLimit = limit;
+                        $speedLimitValue.textContent = limit;
+                        $speedLimit.classList.remove('hidden');
+                        return;
+                    }
+                }
+            }
+            currentSpeedLimit = null;
+            $speedLimit.classList.add('hidden');
+        } catch (e) {
+            currentSpeedLimit = null;
+            $speedLimit.classList.add('hidden');
+        }
     }
 
     function createDotIcon() {
-        return L.divIcon({
-            className: '',
-            html: '<div class="user-location-pulse"></div><div class="user-location-dot"></div>',
-            iconSize: [20, 20],
-            iconAnchor: [10, 10]
-        });
+        return L.divIcon({ className: '', html: '<div class="user-location-pulse"></div><div class="user-location-dot"></div>', iconSize: [20, 20], iconAnchor: [10, 10] });
     }
 
     function createNavIcon() {
-        return L.divIcon({
-            className: 'user-nav-marker',
-            html: `<svg viewBox="0 0 48 48">
-                <circle cx="24" cy="24" r="20" fill="#0a84ff" stroke="white" stroke-width="4"/>
-                <polygon points="24,8 32,28 24,24 16,28" fill="white"/>
-            </svg>`,
-            iconSize: [48, 48],
-            iconAnchor: [24, 24]
-        });
+        return L.divIcon({ className: 'user-nav-marker', html: '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="20" fill="#0a84ff" stroke="white" stroke-width="4"/><polygon points="24,8 32,28 24,24 16,28" fill="white"/></svg>', iconSize: [48, 48], iconAnchor: [24, 24] });
     }
 
     // ===== MAP EVENTS =====
@@ -738,421 +709,230 @@
         mapEl.addEventListener('touchmove', handleTouchMove, { passive: true });
         mapEl.addEventListener('touchend', handleTouchEnd, { passive: true });
         mapEl.addEventListener('touchcancel', handleTouchEnd, { passive: true });
-
-        map.on('click', () => {
-            $searchResults.classList.add('hidden');
-            $searchInput.blur();
-        });
+        map.on('click', () => { $searchResults.classList.add('hidden'); $searchInput.blur(); });
     }
 
     function handleTouchStart(e) {
         if (isNavigating || e.touches.length !== 1) return;
-        const touch = e.touches[0];
-        longPressStartX = touch.clientX;
-        longPressStartY = touch.clientY;
-        longPressTimer = setTimeout(() => {
-            handleLongPress(touch.clientX, touch.clientY);
-        }, LONG_PRESS_DURATION);
+        const touch = e.touches[0]; longPressStartX = touch.clientX; longPressStartY = touch.clientY;
+        longPressTimer = setTimeout(() => handleLongPress(touch.clientX, touch.clientY), LONG_PRESS_DURATION);
     }
 
     function handleTouchMove(e) {
         if (!longPressTimer) return;
         const touch = e.touches[0];
-        const dx = Math.abs(touch.clientX - longPressStartX);
-        const dy = Math.abs(touch.clientY - longPressStartY);
-        if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
+        if (Math.abs(touch.clientX - longPressStartX) > LONG_PRESS_MOVE_THRESHOLD || Math.abs(touch.clientY - longPressStartY) > LONG_PRESS_MOVE_THRESHOLD) {
+            clearTimeout(longPressTimer); longPressTimer = null;
         }
     }
 
-    function handleTouchEnd() {
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
-    }
+    function handleTouchEnd() { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } }
 
     function handleLongPress(clientX, clientY) {
         if (navigator.vibrate) navigator.vibrate(50);
-        const containerPoint = L.point(clientX, clientY);
-        const layerPoint = map.containerPointToLayerPoint(containerPoint);
-        const latlng = map.layerPointToLatLng(layerPoint);
+        const latlng = map.layerPointToLatLng(map.containerPointToLayerPoint(L.point(clientX, clientY)));
         if (latlng) reverseGeocode(latlng.lat, latlng.lng);
     }
 
     // ===== SEARCH =====
     function debounceSearch(query) {
         clearTimeout(searchTimeout);
-        if (!query || query.length < 2) {
-            $searchResults.classList.add('hidden');
-            return;
-        }
+        if (!query || query.length < 2) { $searchResults.classList.add('hidden'); return; }
         searchTimeout = setTimeout(() => searchAddress(query), SEARCH_DEBOUNCE);
     }
 
     async function searchAddress(query) {
         try {
-            const params = new URLSearchParams({
-                q: query, format: 'json', addressdetails: '1', limit: '8', 'accept-language': 'fr'
-            });
-            if (userPosition) {
-                params.set('viewbox', `${userPosition.lng - 1},${userPosition.lat + 1},${userPosition.lng + 1},${userPosition.lat - 1}`);
-                params.set('bounded', '0');
-            }
-            const resp = await fetch(`${NOMINATIM_URL}/search?${params}`, {
-                headers: { 'User-Agent': 'MapsI-PWA/2.0' }
-            });
-            const data = await resp.json();
-            displayResults(data);
-        } catch (err) {
-            console.error('Search error:', err);
-        }
+            const params = new URLSearchParams({ q: query, format: 'json', addressdetails: '1', limit: '8', 'accept-language': 'fr' });
+            if (userPosition) { params.set('viewbox', `${userPosition.lng-1},${userPosition.lat+1},${userPosition.lng+1},${userPosition.lat-1}`); params.set('bounded', '0'); }
+            const resp = await fetch(`${NOMINATIM_URL}/search?${params}`, { headers: { 'User-Agent': 'MapsI-PWA/3.0' } });
+            displayResults(await resp.json());
+        } catch (err) { console.error('Search error:', err); }
     }
 
     function displayResults(results) {
         if (!results || results.length === 0) {
             $searchResults.innerHTML = '<div style="padding:16px;color:var(--text-secondary);text-align:center">Aucun resultat</div>';
-            $searchResults.classList.remove('hidden');
-            return;
+            $searchResults.classList.remove('hidden'); return;
         }
-
         $searchResults.innerHTML = results.map((r, i) => {
-            const name = r.display_name.split(',')[0];
-            const address = r.display_name.split(',').slice(1, 3).join(',').trim();
-            return `
-                <div class="search-result-item" data-index="${i}" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${escapeHtml(name)}" data-address="${escapeHtml(address)}">
-                    <svg class="result-pin" viewBox="0 0 24 24">
-                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" fill="currentColor"/>
-                    </svg>
-                    <div class="result-text">
-                        <div class="result-name">${escapeHtml(name)}</div>
-                        <div class="result-address">${escapeHtml(address)}</div>
-                    </div>
-                </div>
-            `;
+            const name = r.display_name.split(',')[0], address = r.display_name.split(',').slice(1, 3).join(',').trim();
+            return `<div class="search-result-item" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${escapeHtml(name)}" data-address="${escapeHtml(address)}">
+                <svg class="result-pin" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" fill="currentColor"/></svg>
+                <div class="result-text"><div class="result-name">${escapeHtml(name)}</div><div class="result-address">${escapeHtml(address)}</div></div>
+            </div>`;
         }).join('');
-
         $searchResults.classList.remove('hidden');
-        $searchResults.querySelectorAll('.search-result-item').forEach(item => {
-            item.addEventListener('click', () => selectResult(item));
-        });
+        $searchResults.querySelectorAll('.search-result-item').forEach(item => item.addEventListener('click', () => selectResult(item)));
     }
 
     function selectResult(item) {
-        const lat = parseFloat(item.dataset.lat);
-        const lon = parseFloat(item.dataset.lon);
-        const name = item.dataset.name;
-        const address = item.dataset.address;
-
-        $searchInput.value = name;
-        $searchResults.classList.add('hidden');
-        $searchClear.classList.remove('hidden');
-
+        const lat = parseFloat(item.dataset.lat), lon = parseFloat(item.dataset.lon), name = item.dataset.name, address = item.dataset.address;
+        $searchInput.value = name; $searchResults.classList.add('hidden'); $searchClear.classList.remove('hidden');
         addToHistory({ name, address, lat, lon });
-        switchView('map');
-        setDestination(lat, lon, name);
+
+        if (addingWaypoint) {
+            addingWaypoint = false;
+            $searchInput.placeholder = 'Rechercher une adresse...';
+            switchView('map');
+            addWaypoint(lat, lon, name);
+        } else {
+            switchView('map');
+            setDestination(lat, lon, name);
+        }
     }
 
     async function reverseGeocode(lat, lon) {
         showLoading();
         try {
-            const resp = await fetch(
-                `${NOMINATIM_URL}/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=fr`,
-                { headers: { 'User-Agent': 'MapsI-PWA/2.0' } }
-            );
-            const data = await resp.json();
-            hideLoading();
+            const resp = await fetch(`${NOMINATIM_URL}/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=fr`, { headers: { 'User-Agent': 'MapsI-PWA/3.0' } });
+            const data = await resp.json(); hideLoading();
             const name = data.display_name?.split(',')[0] || 'Destination';
             const address = data.display_name?.split(',').slice(1, 3).join(',').trim() || '';
-
             addToHistory({ name, address, lat, lon });
-            setDestination(lat, lon, name);
-            $searchInput.value = name;
-            $searchClear.classList.remove('hidden');
-        } catch (err) {
-            hideLoading();
-            setDestination(lat, lon, 'Destination');
-        }
+            setDestination(lat, lon, name); $searchInput.value = name; $searchClear.classList.remove('hidden');
+        } catch (err) { hideLoading(); setDestination(lat, lon, 'Destination'); }
     }
 
-    // ===== SET DESTINATION =====
+    // ===== DESTINATION =====
     function setDestination(lat, lon, name) {
         destination = { lat, lon, name };
-
         if (destMarker) map.removeLayer(destMarker);
-
-        const destIcon = L.divIcon({
-            className: 'destination-marker',
-            html: `<svg viewBox="0 0 24 36">
-                <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24C24 5.4 18.6 0 12 0z" fill="#ff453a"/>
-                <circle cx="12" cy="12" r="5" fill="white"/>
-            </svg>`,
-            iconSize: [32, 40],
-            iconAnchor: [16, 40]
-        });
-
-        destMarker = L.marker([lat, lon], { icon: destIcon }).addTo(map);
+        destMarker = L.marker([lat, lon], { icon: L.divIcon({ className: 'destination-marker', html: '<svg viewBox="0 0 24 36"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24C24 5.4 18.6 0 12 0z" fill="#ff453a"/><circle cx="12" cy="12" r="5" fill="white"/></svg>', iconSize: [32, 40], iconAnchor: [16, 40] }) }).addTo(map);
         map.flyTo([lat, lon], 15, { duration: 0.8 });
-
-        if (userPosition) {
-            calculateRoute();
-        } else {
-            navigator.geolocation?.getCurrentPosition(
-                pos => {
-                    updateUserPosition(pos);
-                    calculateRoute();
-                },
-                () => alert('Activez la localisation pour calculer l\'itineraire'),
-                { enableHighAccuracy: true, timeout: 5000 }
-            );
-        }
+        if (userPosition) calculateRoute();
+        else navigator.geolocation?.getCurrentPosition(pos => { updateUserPosition(pos); calculateRoute(); }, () => alert('Activez la localisation'), { enableHighAccuracy: true, timeout: 5000 });
     }
 
-    // ===== ROUTING (10. Routes alternatives + 1. ETA) =====
+    // ===== ROUTING (multi-stops) =====
     async function calculateRoute() {
         if (!userPosition || !destination) return;
-
         showLoading();
-
         const profile = transportMode === 'walking' ? 'foot' : transportMode === 'cycling' ? 'bike' : 'car';
-        const url = `${OSRM_URL}/route/v1/${profile}/${userPosition.lng},${userPosition.lat};${destination.lon},${destination.lat}?overview=full&geometries=geojson&steps=true&alternatives=true`;
-
+        // Build coordinates string with waypoints
+        let coords = `${userPosition.lng},${userPosition.lat}`;
+        waypoints.forEach(wp => { coords += `;${wp.lon},${wp.lat}`; });
+        coords += `;${destination.lon},${destination.lat}`;
+        const url = `${OSRM_URL}/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=true&alternatives=${waypoints.length === 0 ? 'true' : 'false'}`;
         try {
             const resp = await fetch(url);
-            const data = await resp.json();
-            hideLoading();
-
-            if (data.code !== 'Ok' || !data.routes.length) {
-                alert('Impossible de calculer le trajet');
-                return;
-            }
-
-            allRoutes = data.routes;
-            selectedRouteIndex = 0;
-            selectRoute(0);
-
-            const coords = allRoutes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-            const bounds = L.latLngBounds(coords);
-            map.fitBounds(bounds, { padding: [60, 60] });
-
-            // Show alternatives
+            const data = await resp.json(); hideLoading();
+            if (data.code !== 'Ok' || !data.routes.length) { alert('Impossible de calculer le trajet'); return; }
+            allRoutes = data.routes; selectedRouteIndex = 0; selectRoute(0);
+            const coords2 = allRoutes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+            map.fitBounds(L.latLngBounds(coords2), { padding: [60, 60] });
             displayRouteAlternatives();
             showNavPanel();
-
-        } catch (err) {
-            hideLoading();
-            alert('Erreur de calcul du trajet');
-        }
+        } catch (err) { hideLoading(); alert('Erreur de calcul du trajet'); }
     }
 
     function selectRoute(index) {
         selectedRouteIndex = index;
         routeData = allRoutes[index];
-        routeSteps = routeData.legs[0].steps;
+        // Flatten all legs' steps
+        routeSteps = [];
+        routeData.legs.forEach(leg => { routeSteps.push(...leg.steps); });
         currentStepIndex = 0;
-
-        // Clear old route layers
         clearAltRouteLayers();
         if (routeLayer) map.removeLayer(routeLayer);
         if (routeShadowLayer) map.removeLayer(routeShadowLayer);
-
-        // Draw alternative routes first (behind)
         allRoutes.forEach((route, i) => {
             if (i !== index) {
-                const altLayer = L.geoJSON(route.geometry, {
-                    style: { color: '#888', weight: 4, opacity: 0.4, dashArray: '8,8' }
-                }).addTo(map);
-                altLayer.on('click', () => {
-                    selectRoute(i);
-                    displayRouteAlternatives();
-                    showNavPanel();
-                });
+                const altLayer = L.geoJSON(route.geometry, { style: { color: '#888', weight: 4, opacity: 0.4, dashArray: '8,8' } }).addTo(map);
+                altLayer.on('click', () => { selectRoute(i); displayRouteAlternatives(); showNavPanel(); });
                 altRouteLayers.push(altLayer);
             }
         });
-
-        // Draw main route
         drawRoute(routeData.geometry);
     }
 
-    function clearAltRouteLayers() {
-        altRouteLayers.forEach(l => map.removeLayer(l));
-        altRouteLayers = [];
-    }
+    function clearAltRouteLayers() { altRouteLayers.forEach(l => map.removeLayer(l)); altRouteLayers = []; }
 
     function displayRouteAlternatives() {
-        if (allRoutes.length <= 1) {
-            $routeAlternatives.classList.add('hidden');
-            return;
-        }
-
+        if (allRoutes.length <= 1) { $routeAlternatives.classList.add('hidden'); return; }
         $routeAlternatives.classList.remove('hidden');
         $routeAlternatives.innerHTML = allRoutes.map((route, i) => `
             <div class="route-option ${i === selectedRouteIndex ? 'active' : ''}" data-route="${i}">
                 <span class="route-time">${formatDuration(route.duration)}</span>
                 <span class="route-dist">${formatDistance(route.distance)}</span>
-            </div>
-        `).join('');
-
+            </div>`).join('');
         $routeAlternatives.querySelectorAll('.route-option').forEach(el => {
-            el.addEventListener('click', () => {
-                const idx = parseInt(el.dataset.route);
-                selectRoute(idx);
-                displayRouteAlternatives();
-                showNavPanel();
-            });
+            el.addEventListener('click', () => { selectRoute(parseInt(el.dataset.route)); displayRouteAlternatives(); showNavPanel(); });
         });
     }
 
     function drawRoute(geometry) {
         if (routeLayer) map.removeLayer(routeLayer);
         if (routeShadowLayer) map.removeLayer(routeShadowLayer);
-
-        routeShadowLayer = L.geoJSON(geometry, {
-            style: { color: '#000', weight: 8, opacity: 0.15 }
-        }).addTo(map);
-
+        routeShadowLayer = L.geoJSON(geometry, { style: { color: '#000', weight: 8, opacity: 0.15 } }).addTo(map);
         const color = transportMode === 'walking' ? '#30d158' : transportMode === 'cycling' ? '#ff9f0a' : '#0a84ff';
-        routeLayer = L.geoJSON(geometry, {
-            style: { color, weight: 5, opacity: 0.9, lineCap: 'round', lineJoin: 'round' }
-        }).addTo(map);
+        routeLayer = L.geoJSON(geometry, { style: { color, weight: 5, opacity: 0.9, lineCap: 'round', lineJoin: 'round' } }).addTo(map);
     }
 
     function showNavPanel() {
         $navDistance.textContent = formatDistance(routeData.distance);
         $navDuration.textContent = formatDuration(routeData.duration);
-
-        // 1. ETA
         $navEta.textContent = 'Arr. ' + calculateETA(routeData.duration);
-
-        if (routeSteps.length > 0) {
-            $navStepText.textContent = translateManeuver(routeSteps[0].maneuver.type, routeSteps[0].maneuver.modifier, routeSteps[0].name);
-        }
-
+        if (routeSteps.length > 0) $navStepText.textContent = translateManeuver(routeSteps[0].maneuver.type, routeSteps[0].maneuver.modifier, routeSteps[0].name);
+        renderWaypoints();
         $transportModes.classList.remove('hidden');
         $navPanel.classList.remove('hidden');
     }
 
-    // ===== 1. ETA CALCULATION =====
-    function calculateETA(durationSeconds) {
-        const arrival = new Date(Date.now() + durationSeconds * 1000);
-        const h = arrival.getHours().toString().padStart(2, '0');
-        const m = arrival.getMinutes().toString().padStart(2, '0');
-        return `${h}:${m}`;
+    function calculateETA(sec) {
+        const d = new Date(Date.now() + sec * 1000);
+        return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
     }
 
     // ===== ACTIVE NAVIGATION =====
     function startNavigation() {
-        isNavigating = true;
-        currentStepIndex = 0;
-        lastSpokenStep = -1;
-
-        $navPanel.classList.add('hidden');
-        $transportModes.classList.add('hidden');
-        $routeAlternatives.classList.add('hidden');
-        $activeNav.classList.remove('hidden');
-        $locateBtn.classList.add('nav-hidden');
+        isNavigating = true; currentStepIndex = 0; lastSpokenStep = -1;
+        $navPanel.classList.add('hidden'); $transportModes.classList.add('hidden'); $routeAlternatives.classList.add('hidden');
+        $activeNav.classList.remove('hidden'); $locateBtn.classList.add('nav-hidden');
         document.body.classList.add('navigating');
-
-        // Hide alt routes
         clearAltRouteLayers();
-
-        startWatchingPosition();
-        updateNavigationDisplay();
-
-        if (userPosition) {
-            map.setView([userPosition.lat, userPosition.lng], NAV_ZOOM);
-            if (userMarker) userMarker.setIcon(createNavIcon());
-        }
-
-        // Speed display
-        if (settings.showSpeed) {
-            $speedDisplay.classList.remove('hidden');
-        }
-
-        // Wake lock
-        if ('wakeLock' in navigator) {
-            navigator.wakeLock.request('screen').catch(() => {});
-        }
-
-        // 2. Voice: announce first step
+        startWatchingPosition(); updateNavigationDisplay();
+        if (userPosition) { map.setView([userPosition.lat, userPosition.lng], NAV_ZOOM); if (userMarker) userMarker.setIcon(createNavIcon()); }
+        if (settings.showSpeed) $speedDisplay.classList.remove('hidden');
+        if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(() => {});
         speakStep(0);
     }
 
     function stopNavigation() {
         isNavigating = false;
-        $activeNav.classList.add('hidden');
-        $speedDisplay.classList.add('hidden');
+        $activeNav.classList.add('hidden'); $speedDisplay.classList.add('hidden'); $speedLimit.classList.add('hidden');
         $locateBtn.classList.remove('nav-hidden');
         document.body.classList.remove('navigating');
         stopWatchingPosition();
-
         if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
         if (routeShadowLayer) { map.removeLayer(routeShadowLayer); routeShadowLayer = null; }
         if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
-        clearAltRouteLayers();
-        clearPOIMarkers();
-
-        if (userMarker && userPosition) {
-            userMarker.setIcon(createDotIcon());
-        }
-
+        clearAltRouteLayers(); clearPOIMarkers(); clearWaypoints();
+        if (userMarker && userPosition) userMarker.setIcon(createDotIcon());
         if (userPosition) map.setView([userPosition.lat, userPosition.lng], 15);
-
-        $transportModes.classList.add('hidden');
-        $searchInput.value = '';
-        $searchClear.classList.add('hidden');
-        destination = null;
-        routeData = null;
-        routeSteps = [];
-        allRoutes = [];
-
-        if (rerouteTimeout) {
-            clearTimeout(rerouteTimeout);
-            rerouteTimeout = null;
-        }
+        $transportModes.classList.add('hidden'); $searchInput.value = ''; $searchClear.classList.add('hidden');
+        destination = null; routeData = null; routeSteps = []; allRoutes = []; currentSpeedLimit = null;
+        if (rerouteTimeout) { clearTimeout(rerouteTimeout); rerouteTimeout = null; }
     }
 
     function updateNavigation(pos) {
         if (!routeSteps.length) return;
-
-        const userLat = pos.coords.latitude;
-        const userLng = pos.coords.longitude;
-
-        const step = routeSteps[currentStepIndex];
-        if (!step) return;
-
+        const userLat = pos.coords.latitude, userLng = pos.coords.longitude;
+        const step = routeSteps[currentStepIndex]; if (!step) return;
         const stepEnd = step.maneuver.location;
         const dist = haversine(userLat, userLng, stepEnd[1], stepEnd[0]);
-
-        // Advance step
         if (dist < 30 && currentStepIndex < routeSteps.length - 1) {
-            currentStepIndex++;
-            updateNavigationDisplay();
+            currentStepIndex++; updateNavigationDisplay();
             if (navigator.vibrate) navigator.vibrate(100);
-            // 2. Voice guidance
             speakStep(currentStepIndex);
         }
-
-        // Update distance to next maneuver
         const nextStep = routeSteps[currentStepIndex];
-        if (nextStep) {
-            const nextDist = haversine(userLat, userLng, nextStep.maneuver.location[1], nextStep.maneuver.location[0]);
-            $activeNavDistance.textContent = formatDistance(nextDist);
-        }
-
-        // 5. Remaining distance + time
+        if (nextStep) $activeNavDistance.textContent = formatDistance(haversine(userLat, userLng, nextStep.maneuver.location[1], nextStep.maneuver.location[0]));
         updateRemainingInfo(userLat, userLng);
-
-        // Center map
         map.setView([userLat, userLng], NAV_ZOOM, { animate: true, duration: 0.5 });
-
-        // 3. Auto-reroute: check if off route
-        if (settings.autoReroute) {
-            checkOffRoute(userLat, userLng);
-        }
-
+        if (settings.autoReroute) checkOffRoute(userLat, userLng);
+        // 7. Speed limit
+        fetchSpeedLimit(userLat, userLng);
         // Check arrival
         const destDist = haversine(userLat, userLng, destination.lat, destination.lon);
         if (destDist < 30) {
@@ -1163,235 +943,104 @@
         }
     }
 
-    // ===== 5. REMAINING DISTANCE + TIME =====
     function updateRemainingInfo(userLat, userLng) {
-        // Sum remaining step distances
-        let remainDist = 0;
-        let remainTime = 0;
-        for (let i = currentStepIndex; i < routeSteps.length; i++) {
-            remainDist += routeSteps[i].distance;
-            remainTime += routeSteps[i].duration;
-        }
-
-        // Subtract distance already covered in current step
-        if (routeSteps[currentStepIndex]) {
-            const stepLoc = routeSteps[currentStepIndex].maneuver.location;
-            const coveredDist = routeSteps[currentStepIndex].distance - haversine(userLat, userLng, stepLoc[1], stepLoc[0]);
-            if (coveredDist > 0) {
-                remainDist = Math.max(0, remainDist - coveredDist);
-            }
-        }
-
+        let remainDist = 0, remainTime = 0;
+        for (let i = currentStepIndex; i < routeSteps.length; i++) { remainDist += routeSteps[i].distance; remainTime += routeSteps[i].duration; }
         $remainingDistance.textContent = formatDistance(remainDist);
         $remainingTime.textContent = formatDuration(remainTime);
         $etaTime.textContent = calculateETA(remainTime);
     }
 
-    // ===== 3. AUTO-REROUTE =====
     function checkOffRoute(userLat, userLng) {
-        if (!routeData || !routeData.geometry) return;
-
+        if (!routeData?.geometry) return;
         const coords = routeData.geometry.coordinates;
         let minDist = Infinity;
-
-        // Check distance to route polyline (sample every 3 points for perf)
-        for (let i = 0; i < coords.length; i += 3) {
-            const d = haversine(userLat, userLng, coords[i][1], coords[i][0]);
-            if (d < minDist) minDist = d;
-        }
-
+        for (let i = 0; i < coords.length; i += 3) { const d = haversine(userLat, userLng, coords[i][1], coords[i][0]); if (d < minDist) minDist = d; }
         if (minDist > REROUTE_THRESHOLD) {
-            // Debounce reroute
             if (!rerouteTimeout) {
                 rerouteTimeout = setTimeout(() => {
-                    rerouteTimeout = null;
-                    speak('Recalcul de l\'itineraire');
-                    calculateRoute().then(() => {
-                        if (isNavigating) {
-                            updateNavigationDisplay();
-                        }
-                    });
+                    rerouteTimeout = null; speak('Recalcul de l\'itineraire');
+                    calculateRoute().then(() => { if (isNavigating) updateNavigationDisplay(); });
                 }, 2000);
             }
-        } else if (rerouteTimeout) {
-            clearTimeout(rerouteTimeout);
-            rerouteTimeout = null;
-        }
+        } else if (rerouteTimeout) { clearTimeout(rerouteTimeout); rerouteTimeout = null; }
     }
 
-    // ===== 8. SVG MANEUVER ICONS =====
     function updateNavigationDisplay() {
-        const step = routeSteps[currentStepIndex];
-        if (!step) return;
-
-        const maneuver = step.maneuver;
-        $activeNavIcon.innerHTML = getManeuverSVG(maneuver.type, maneuver.modifier);
+        const step = routeSteps[currentStepIndex]; if (!step) return;
+        $activeNavIcon.innerHTML = getManeuverSVG(step.maneuver.type, step.maneuver.modifier);
         $activeNavStreet.textContent = step.name || 'Route';
         $activeNavDistance.textContent = formatDistance(step.distance);
     }
 
     function getManeuverSVG(type, modifier) {
         let path = '';
-
-        if (type === 'arrive') {
-            path = '<circle cx="12" cy="12" r="4" fill="white"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="white" stroke-width="2.5" stroke-linecap="round"/>';
-        } else if (type === 'depart') {
-            path = '<path d="M12 19V5M12 5l-5 5M12 5l5 5" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
-        } else if (type === 'roundabout' || type === 'rotary') {
-            path = '<circle cx="12" cy="12" r="5" fill="none" stroke="white" stroke-width="2.5"/><path d="M12 7V3M12 3l-2 2M12 3l2 2" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
-        } else if (modifier?.includes('sharp left') || modifier?.includes('uturn')) {
-            path = '<path d="M18 18V9a5 5 0 00-10 0v1M8 6L4 10l4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
-        } else if (modifier?.includes('left')) {
-            path = '<path d="M18 18v-7a3 3 0 00-3-3H7M7 8L3 12l4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
-        } else if (modifier?.includes('sharp right')) {
-            path = '<path d="M6 18V9a5 5 0 0110 0v1M16 6l4 4-4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
-        } else if (modifier?.includes('right')) {
-            path = '<path d="M6 18v-7a3 3 0 013-3h10M17 8l4 4-4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
-        } else {
-            // Straight
-            path = '<path d="M12 19V5M12 5l-4 4M12 5l4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
-        }
-
+        if (type === 'arrive') path = '<circle cx="12" cy="12" r="4" fill="white"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="white" stroke-width="2.5" stroke-linecap="round"/>';
+        else if (type === 'depart') path = '<path d="M12 19V5M12 5l-5 5M12 5l5 5" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
+        else if (type === 'roundabout' || type === 'rotary') path = '<circle cx="12" cy="12" r="5" fill="none" stroke="white" stroke-width="2.5"/><path d="M12 7V3M12 3l-2 2M12 3l2 2" stroke="white" stroke-width="2" stroke-linecap="round"/>';
+        else if (modifier?.includes('sharp left') || modifier?.includes('uturn')) path = '<path d="M18 18V9a5 5 0 00-10 0v1M8 6L4 10l4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
+        else if (modifier?.includes('left')) path = '<path d="M18 18v-7a3 3 0 00-3-3H7M7 8L3 12l4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
+        else if (modifier?.includes('sharp right')) path = '<path d="M6 18V9a5 5 0 0110 0v1M16 6l4 4-4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
+        else if (modifier?.includes('right')) path = '<path d="M6 18v-7a3 3 0 013-3h10M17 8l4 4-4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
+        else path = '<path d="M12 19V5M12 5l-4 4M12 5l4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>';
         return `<div class="maneuver-icon"><svg viewBox="0 0 24 24">${path}</svg></div>`;
     }
 
-    // ===== 2. VOICE GUIDANCE (TTS) =====
+    // ===== VOICE =====
     function speakStep(stepIndex) {
         if (!settings.voiceEnabled || stepIndex === lastSpokenStep) return;
         lastSpokenStep = stepIndex;
-
-        const step = routeSteps[stepIndex];
-        if (!step) return;
-
-        const text = translateManeuver(step.maneuver.type, step.maneuver.modifier, step.name);
-        speak(text);
+        const step = routeSteps[stepIndex]; if (!step) return;
+        speak(translateManeuver(step.maneuver.type, step.maneuver.modifier, step.name));
     }
 
     function speak(text) {
         if (!settings.voiceEnabled || !('speechSynthesis' in window)) return;
-
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'fr-FR';
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
-        window.speechSynthesis.speak(utterance);
+        const u = new SpeechSynthesisUtterance(text); u.lang = 'fr-FR'; u.rate = 1.0;
+        window.speechSynthesis.speak(u);
     }
 
     function selectTransportMode(mode) {
         transportMode = mode;
-        document.querySelectorAll('.transport-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.mode === mode);
-        });
+        document.querySelectorAll('.transport-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
         if (destination && userPosition) calculateRoute();
     }
 
     // ===== HELPERS =====
-    function formatDistance(meters) {
-        if (meters >= 1000) return (meters / 1000).toFixed(1) + ' km';
-        return Math.round(meters) + ' m';
-    }
-
-    function formatDuration(seconds) {
-        if (seconds < 60) return '< 1 min';
-        const h = Math.floor(seconds / 3600);
-        const m = Math.round((seconds % 3600) / 60);
-        if (h > 0) return h + ' h ' + m + ' min';
-        return m + ' min';
-    }
-
+    function formatDistance(m) { return m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m) + ' m'; }
+    function formatDuration(s) { if (s < 60) return '< 1 min'; const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h > 0 ? h + ' h ' + m + ' min' : m + ' min'; }
     function haversine(lat1, lon1, lat2, lon2) {
-        const R = 6371000;
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) ** 2 +
-                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                  Math.sin(dLon / 2) ** 2;
+        const R = 6371000, dLat = (lat2 - lat1) * Math.PI / 180, dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
-
     function translateManeuver(type, modifier, street) {
         const name = street || 'la route';
-        const turns = {
-            'turn-left': 'Tournez a gauche',
-            'turn-right': 'Tournez a droite',
-            'turn-slight left': 'Legere gauche',
-            'turn-slight right': 'Legere droite',
-            'turn-sharp left': 'Tournez fortement a gauche',
-            'turn-sharp right': 'Tournez fortement a droite',
-            'continue-': 'Continuez tout droit',
-            'depart-': 'Depart',
-            'arrive-': 'Vous etes arrive',
-            'roundabout-': 'Au rond-point',
-            'merge-': 'Rejoignez',
-            'fork-left': 'Prenez a gauche',
-            'fork-right': 'Prenez a droite',
-        };
+        const turns = { 'turn-left': 'Tournez a gauche', 'turn-right': 'Tournez a droite', 'turn-slight left': 'Legere gauche', 'turn-slight right': 'Legere droite', 'turn-sharp left': 'Tournez fortement a gauche', 'turn-sharp right': 'Tournez fortement a droite', 'continue-': 'Continuez tout droit', 'depart-': 'Depart', 'arrive-': 'Vous etes arrive', 'roundabout-': 'Au rond-point', 'merge-': 'Rejoignez', 'fork-left': 'Prenez a gauche', 'fork-right': 'Prenez a droite' };
         const key = type + '-' + (modifier || '');
-        const action = turns[key] || turns[type + '-'] || 'Continuez';
-        return `${action} sur ${name}`;
+        return `${turns[key] || turns[type + '-'] || 'Continuez'} sur ${name}`;
     }
-
-    function escapeHtml(str) {
-        const d = document.createElement('div');
-        d.textContent = str;
-        return d.innerHTML;
-    }
-
+    function escapeHtml(str) { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
     function showLoading() { $loading.classList.remove('hidden'); }
     function hideLoading() { $loading.classList.add('hidden'); }
 
     // ===== EVENT LISTENERS =====
-    $searchInput.addEventListener('input', e => {
-        const val = e.target.value.trim();
-        $searchClear.classList.toggle('hidden', val.length === 0);
-        debounceSearch(val);
-    });
-
-    $searchInput.addEventListener('focus', () => {
-        if ($searchInput.value.trim().length >= 2) {
-            debounceSearch($searchInput.value.trim());
-        }
-    });
-
-    $searchClear.addEventListener('click', () => {
-        $searchInput.value = '';
-        $searchClear.classList.add('hidden');
-        $searchResults.classList.add('hidden');
-        $searchInput.focus();
-    });
-
-    $locateBtn.addEventListener('click', () => {
-        if (isTracking) {
-            stopWatchingPosition();
-        } else {
-            locateUser();
-            startWatchingPosition();
-        }
-    });
-
-    document.querySelectorAll('.transport-btn').forEach(btn => {
-        btn.addEventListener('click', () => selectTransportMode(btn.dataset.mode));
-    });
-
+    $searchInput.addEventListener('input', e => { const val = e.target.value.trim(); $searchClear.classList.toggle('hidden', val.length === 0); debounceSearch(val); });
+    $searchInput.addEventListener('focus', () => { if ($searchInput.value.trim().length >= 2) debounceSearch($searchInput.value.trim()); });
+    $searchClear.addEventListener('click', () => { $searchInput.value = ''; $searchClear.classList.add('hidden'); $searchResults.classList.add('hidden'); $searchInput.focus(); if (addingWaypoint) { addingWaypoint = false; $searchInput.placeholder = 'Rechercher une adresse...'; } });
+    $locateBtn.addEventListener('click', () => { if (isTracking) stopWatchingPosition(); else { locateUser(); startWatchingPosition(); } });
+    document.querySelectorAll('.transport-btn').forEach(btn => btn.addEventListener('click', () => selectTransportMode(btn.dataset.mode)));
     $navClose.addEventListener('click', () => {
-        $navPanel.classList.add('hidden');
-        $transportModes.classList.add('hidden');
-        $routeAlternatives.classList.add('hidden');
+        $navPanel.classList.add('hidden'); $transportModes.classList.add('hidden'); $routeAlternatives.classList.add('hidden');
         if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
         if (routeShadowLayer) { map.removeLayer(routeShadowLayer); routeShadowLayer = null; }
         if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
-        clearAltRouteLayers();
-        $searchInput.value = '';
-        $searchClear.classList.add('hidden');
-        destination = null;
-        allRoutes = [];
+        clearAltRouteLayers(); clearWaypoints();
+        $searchInput.value = ''; $searchClear.classList.add('hidden'); destination = null; allRoutes = [];
     });
-
     $navStartBtn.addEventListener('click', startNavigation);
     $activeNavStop.addEventListener('click', stopNavigation);
 
-    // ===== START =====
     init();
-
 })();
