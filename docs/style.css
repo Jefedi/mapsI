@@ -1387,7 +1387,7 @@ body.light-mode .modal-header {
     border-color: rgba(0,0,0,0.08);
 }
 
-body.light-mode body::after {
+body.light-mode::after {
     background: #ffffff;
 }
 

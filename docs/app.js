@@ -498,7 +498,8 @@
         const query = POI_QUERIES[category];
         const lat = userPosition.lat;
         const lng = userPosition.lng;
-        const overpassUrl = `https://overpass-api.de/api/interpreter?data=[out:json][timeout:10];node${query}(around:${POI_RADIUS},${lat},${lng});out body 10;`;
+        const overpassData = `[out:json][timeout:10];node${query}(around:${POI_RADIUS},${lat},${lng});out body 10;`;
+        const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassData)}`;
 
         try {
             const resp = await fetch(overpassUrl);
@@ -1003,7 +1004,7 @@
         $navDuration.textContent = formatDuration(routeData.duration);
 
         // 1. ETA
-        $navEta.textContent = calculateETA(routeData.duration);
+        $navEta.textContent = 'Arr. ' + calculateETA(routeData.duration);
 
         if (routeSteps.length > 0) {
             $navStepText.textContent = translateManeuver(routeSteps[0].maneuver.type, routeSteps[0].maneuver.modifier, routeSteps[0].name);
