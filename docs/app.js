@@ -16,13 +16,15 @@
     const DEFAULT_CENTER = [46.603354, 1.888334]; // France center
     const DEFAULT_ZOOM = 6;
     const SEARCH_DEBOUNCE = 400;
+    const LONG_PRESS_DURATION = 800; // ms - durée pour appui long
+    const LONG_PRESS_MOVE_THRESHOLD = 10; // pixels - mouvement max avant annulation
 
     // ===== STATE =====
     let map;
     let userMarker;
-    let userPulse;
     let destMarker;
     let routeLayer;
+    let routeShadowLayer;
     let userPosition = null;
     let destination = null;
     let routeData = null;
@@ -33,6 +35,13 @@
     let isNavigating = false;
     let watchId = null;
     let searchTimeout = null;
+    let locationRequested = false;
+
+    // Long press state
+    let longPressTimer = null;
+    let longPressStartX = 0;
+    let longPressStartY = 0;
+    let isLongPress = false;
 
     // ===== DOM ELEMENTS =====
     const $searchInput = document.getElementById('search-input');
@@ -73,12 +82,40 @@
             document.querySelector('.leaflet-tile-pane')?.classList.add('dark-tiles');
         }
 
-        // Try to get user location on start
-        locateUser(false);
+        // Setup map event listeners
+        setupMapEvents();
+
+        // Request location permission immediately
+        requestLocationPermission();
+    }
+
+    // ===== LOCATION PERMISSION =====
+    function requestLocationPermission() {
+        if (!navigator.geolocation) {
+            console.warn('Geolocation not supported');
+            return;
+        }
+
+        if (locationRequested) return;
+        locationRequested = true;
+
+        // This will trigger the browser permission dialog
+        navigator.geolocation.getCurrentPosition(
+            pos => {
+                updateUserPosition(pos);
+                map.setView([pos.coords.latitude, pos.coords.longitude], 15);
+                startWatchingPosition();
+            },
+            err => {
+                console.warn('Geolocation error:', err.message);
+                // Permission denied or error - still let user use the map
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
     }
 
     // ===== USER LOCATION =====
-    function locateUser(animate) {
+    function locateUser(animate = true) {
         if (!navigator.geolocation) return;
 
         showLoading();
@@ -86,7 +123,7 @@
             pos => {
                 hideLoading();
                 updateUserPosition(pos);
-                if (animate !== false) {
+                if (animate) {
                     map.flyTo([pos.coords.latitude, pos.coords.longitude], 16, { duration: 1 });
                 } else {
                     map.setView([pos.coords.latitude, pos.coords.longitude], 15);
@@ -94,7 +131,7 @@
             },
             err => {
                 hideLoading();
-                console.warn('Geolocation error:', err.message);
+                alert('Impossible d\'obtenir votre position. Verifiez les permissions.');
             },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
         );
@@ -147,6 +184,76 @@
         }
     }
 
+    // ===== MAP EVENTS (Long Press) =====
+    function setupMapEvents() {
+        const mapEl = document.getElementById('map');
+
+        // Touch events for long press
+        mapEl.addEventListener('touchstart', handleTouchStart, { passive: false });
+        mapEl.addEventListener('touchmove', handleTouchMove, { passive: true });
+        mapEl.addEventListener('touchend', handleTouchEnd, { passive: true });
+        mapEl.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+
+        // Close search results when tapping map
+        map.on('click', () => {
+            $searchResults.classList.add('hidden');
+            $searchInput.blur();
+        });
+    }
+
+    function handleTouchStart(e) {
+        if (isNavigating) return;
+        if (e.touches.length !== 1) return; // Only single touch
+
+        const touch = e.touches[0];
+        longPressStartX = touch.clientX;
+        longPressStartY = touch.clientY;
+        isLongPress = false;
+
+        // Start long press timer
+        longPressTimer = setTimeout(() => {
+            isLongPress = true;
+            handleLongPress(touch.clientX, touch.clientY);
+        }, LONG_PRESS_DURATION);
+    }
+
+    function handleTouchMove(e) {
+        if (!longPressTimer) return;
+
+        const touch = e.touches[0];
+        const dx = Math.abs(touch.clientX - longPressStartX);
+        const dy = Math.abs(touch.clientY - longPressStartY);
+
+        // Cancel long press if finger moved too much
+        if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    }
+
+    function handleTouchEnd() {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+    }
+
+    function handleLongPress(clientX, clientY) {
+        // Vibrate feedback if supported
+        if (navigator.vibrate) {
+            navigator.vibrate(50);
+        }
+
+        // Get map coordinates from screen position
+        const containerPoint = L.point(clientX, clientY);
+        const layerPoint = map.containerPointToLayerPoint(containerPoint);
+        const latlng = map.layerPointToLatLng(layerPoint);
+
+        if (latlng) {
+            reverseGeocode(latlng.lat, latlng.lng);
+        }
+    }
+
     // ===== SEARCH =====
     function debounceSearch(query) {
         clearTimeout(searchTimeout);
@@ -167,7 +274,6 @@
                 'accept-language': 'fr'
             });
 
-            // Bias search near user if available
             if (userPosition) {
                 params.set('viewbox',
                     `${userPosition.lng - 1},${userPosition.lat + 1},${userPosition.lng + 1},${userPosition.lat - 1}`);
@@ -209,7 +315,6 @@
 
         $searchResults.classList.remove('hidden');
 
-        // Attach click handlers
         $searchResults.querySelectorAll('.search-result-item').forEach(item => {
             item.addEventListener('click', () => selectResult(item));
         });
@@ -227,6 +332,27 @@
         setDestination(lat, lon, name);
     }
 
+    // ===== REVERSE GEOCODE (for long press) =====
+    async function reverseGeocode(lat, lon) {
+        showLoading();
+        try {
+            const resp = await fetch(
+                `${NOMINATIM_URL}/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=fr`,
+                { headers: { 'User-Agent': 'MapsI-PWA/1.0' } }
+            );
+            const data = await resp.json();
+            hideLoading();
+            const name = data.display_name?.split(',')[0] || 'Destination';
+            setDestination(lat, lon, name);
+            $searchInput.value = name;
+            $searchClear.classList.remove('hidden');
+        } catch (err) {
+            hideLoading();
+            setDestination(lat, lon, 'Destination');
+        }
+    }
+
+    // ===== SET DESTINATION =====
     function setDestination(lat, lon, name) {
         destination = { lat, lon, name };
 
@@ -246,14 +372,21 @@
         destMarker = L.marker([lat, lon], { icon: destIcon }).addTo(map);
         map.flyTo([lat, lon], 15, { duration: 0.8 });
 
-        // Show transport modes and calculate route
-        $transportModes.classList.remove('hidden');
-
+        // Calculate route if we have user position
         if (userPosition) {
             calculateRoute();
         } else {
-            locateUser(false);
-            setTimeout(calculateRoute, 2000);
+            // Try to get user position first
+            navigator.geolocation?.getCurrentPosition(
+                pos => {
+                    updateUserPosition(pos);
+                    calculateRoute();
+                },
+                () => {
+                    alert('Activez la localisation pour calculer l\'itineraire');
+                },
+                { enableHighAccuracy: true, timeout: 5000 }
+            );
         }
     }
 
@@ -296,17 +429,20 @@
     }
 
     function drawRoute(geometry) {
+        // Clear existing route
         if (routeLayer) map.removeLayer(routeLayer);
+        if (routeShadowLayer) map.removeLayer(routeShadowLayer);
 
         // Shadow line
-        L.geoJSON(geometry, {
+        routeShadowLayer = L.geoJSON(geometry, {
             style: { color: '#000', weight: 8, opacity: 0.15 }
         }).addTo(map);
 
         // Main route line
+        const color = transportMode === 'walking' ? '#30d158' : transportMode === 'cycling' ? '#ff9f0a' : '#0a84ff';
         routeLayer = L.geoJSON(geometry, {
             style: {
-                color: transportMode === 'walking' ? '#30d158' : transportMode === 'cycling' ? '#ff9f0a' : '#0a84ff',
+                color: color,
                 weight: 5,
                 opacity: 0.9,
                 lineCap: 'round',
@@ -326,6 +462,8 @@
             $navStepText.textContent = translateManeuver(routeSteps[0].maneuver.type, routeSteps[0].maneuver.modifier, routeSteps[0].name);
         }
 
+        // Show transport modes (inside nav panel area, at bottom)
+        $transportModes.classList.remove('hidden');
         $navPanel.classList.remove('hidden');
     }
 
@@ -335,8 +473,8 @@
         currentStepIndex = 0;
 
         $navPanel.classList.add('hidden');
-        $activeNav.classList.remove('hidden');
         $transportModes.classList.add('hidden');
+        $activeNav.classList.remove('hidden');
 
         startWatchingPosition();
         updateNavigationDisplay();
@@ -357,12 +495,18 @@
             map.removeLayer(routeLayer);
             routeLayer = null;
         }
+        if (routeShadowLayer) {
+            map.removeLayer(routeShadowLayer);
+            routeShadowLayer = null;
+        }
         if (destMarker) {
             map.removeLayer(destMarker);
             destMarker = null;
         }
 
         $transportModes.classList.add('hidden');
+        $searchInput.value = '';
+        $searchClear.classList.add('hidden');
         destination = null;
         routeData = null;
         routeSteps = [];
@@ -374,7 +518,6 @@
         const userLat = pos.coords.latitude;
         const userLng = pos.coords.longitude;
 
-        // Check if user is near the current step's end
         const step = routeSteps[currentStepIndex];
         if (!step) return;
 
@@ -384,6 +527,8 @@
         if (dist < 30 && currentStepIndex < routeSteps.length - 1) {
             currentStepIndex++;
             updateNavigationDisplay();
+            // Vibrate on new instruction
+            if (navigator.vibrate) navigator.vibrate(100);
         }
 
         // Update distance to next step
@@ -399,6 +544,7 @@
         // Check if arrived at destination
         const destDist = haversine(userLat, userLng, destination.lat, destination.lon);
         if (destDist < 30) {
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
             alert('Vous etes arrive !');
             stopNavigation();
         }
@@ -512,12 +658,6 @@
         $searchInput.focus();
     });
 
-    // Close search results when tapping map
-    map || document.getElementById('map').addEventListener('click', () => {
-        $searchResults.classList.add('hidden');
-        $searchInput.blur();
-    });
-
     // Locate button
     $locateBtn.addEventListener('click', () => {
         if (isTracking) {
@@ -533,7 +673,7 @@
         btn.addEventListener('click', () => selectTransportMode(btn.dataset.mode));
     });
 
-    // Navigation panel
+    // Navigation panel close
     $navClose.addEventListener('click', () => {
         $navPanel.classList.add('hidden');
         $transportModes.classList.add('hidden');
@@ -541,50 +681,21 @@
             map.removeLayer(routeLayer);
             routeLayer = null;
         }
+        if (routeShadowLayer) {
+            map.removeLayer(routeShadowLayer);
+            routeShadowLayer = null;
+        }
         if (destMarker) {
             map.removeLayer(destMarker);
             destMarker = null;
         }
+        $searchInput.value = '';
+        $searchClear.classList.add('hidden');
         destination = null;
     });
 
     $navStartBtn.addEventListener('click', startNavigation);
     $activeNavStop.addEventListener('click', stopNavigation);
-
-    // Handle long press on map for quick destination
-    let longPressTimer;
-    const mapEl = document.getElementById('map');
-
-    mapEl.addEventListener('touchstart', e => {
-        if (isNavigating) return;
-        longPressTimer = setTimeout(() => {
-            const touch = e.touches[0];
-            const point = map.containerPointToLatLng([touch.clientX, touch.clientY]);
-            if (point) {
-                reverseGeocode(point.lat, point.lng);
-            }
-        }, 600);
-    }, { passive: true });
-
-    mapEl.addEventListener('touchmove', () => clearTimeout(longPressTimer), { passive: true });
-    mapEl.addEventListener('touchend', () => clearTimeout(longPressTimer), { passive: true });
-
-    // Reverse geocode for long press
-    async function reverseGeocode(lat, lon) {
-        try {
-            const resp = await fetch(
-                `${NOMINATIM_URL}/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=fr`,
-                { headers: { 'User-Agent': 'MapsI-PWA/1.0' } }
-            );
-            const data = await resp.json();
-            const name = data.display_name?.split(',')[0] || 'Destination';
-            setDestination(lat, lon, name);
-            $searchInput.value = name;
-            $searchClear.classList.remove('hidden');
-        } catch (err) {
-            setDestination(lat, lon, 'Destination');
-        }
-    }
 
     // ===== START =====
     initMap();
