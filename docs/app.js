@@ -13,12 +13,14 @@
     // ===== CONFIG =====
     const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
     const OSRM_URL = 'https://router.project-osrm.org';
-    const DEFAULT_CENTER = [46.603354, 1.888334]; // France center
+    const DEFAULT_CENTER = [46.603354, 1.888334];
     const DEFAULT_ZOOM = 6;
     const SEARCH_DEBOUNCE = 400;
     const LONG_PRESS_DURATION = 800;
     const LONG_PRESS_MOVE_THRESHOLD = 10;
-    const NAV_ZOOM = 17; // Zoom navigation
+    const NAV_ZOOM = 17;
+    const MAX_HISTORY = 20;
+    const HISTORY_KEY = 'mapsi_history';
 
     // ===== STATE =====
     let map;
@@ -37,6 +39,8 @@
     let watchId = null;
     let searchTimeout = null;
     let locationErrorShown = false;
+    let currentView = 'map';
+    let searchHistory = [];
 
     // Long press state
     let longPressTimer = null;
@@ -44,6 +48,8 @@
     let longPressStartY = 0;
 
     // ===== DOM ELEMENTS =====
+    const $mapView = document.getElementById('map-view');
+    const $searchView = document.getElementById('search-view');
     const $searchInput = document.getElementById('search-input');
     const $searchClear = document.getElementById('search-clear');
     const $searchResults = document.getElementById('search-results');
@@ -61,6 +67,147 @@
     const $activeNavIcon = document.getElementById('active-nav-icon');
     const $activeNavStop = document.getElementById('active-nav-stop');
     const $loading = document.getElementById('loading');
+    const $toolbar = document.getElementById('toolbar');
+    const $historyList = document.getElementById('history-list');
+    const $historyEmpty = document.getElementById('history-empty');
+    const $historyClearBtn = document.getElementById('history-clear-btn');
+
+    // ===== INIT =====
+    function init() {
+        loadHistory();
+        initMap();
+        setupToolbar();
+        setupHistoryEvents();
+        renderHistory();
+    }
+
+    // ===== VIEW SWITCHING =====
+    function switchView(view) {
+        currentView = view;
+
+        // Update toolbar buttons
+        document.querySelectorAll('.toolbar-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.view === view);
+        });
+
+        if (view === 'map') {
+            $mapView.classList.remove('hidden');
+            $searchView.classList.add('hidden');
+            // Invalidate map size when showing
+            setTimeout(() => map.invalidateSize(), 100);
+        } else if (view === 'search') {
+            $mapView.classList.add('hidden');
+            $searchView.classList.remove('hidden');
+            renderHistory();
+        }
+    }
+
+    function setupToolbar() {
+        document.querySelectorAll('.toolbar-btn').forEach(btn => {
+            btn.addEventListener('click', () => switchView(btn.dataset.view));
+        });
+    }
+
+    // ===== HISTORY =====
+    function loadHistory() {
+        try {
+            const saved = localStorage.getItem(HISTORY_KEY);
+            searchHistory = saved ? JSON.parse(saved) : [];
+        } catch (e) {
+            searchHistory = [];
+        }
+    }
+
+    function saveHistory() {
+        try {
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(searchHistory));
+        } catch (e) {}
+    }
+
+    function addToHistory(item) {
+        // Remove duplicate if exists
+        searchHistory = searchHistory.filter(h =>
+            !(h.lat === item.lat && h.lon === item.lon)
+        );
+
+        // Add to beginning
+        searchHistory.unshift({
+            name: item.name,
+            address: item.address || '',
+            lat: item.lat,
+            lon: item.lon,
+            timestamp: Date.now()
+        });
+
+        // Limit size
+        if (searchHistory.length > MAX_HISTORY) {
+            searchHistory = searchHistory.slice(0, MAX_HISTORY);
+        }
+
+        saveHistory();
+    }
+
+    function clearHistory() {
+        searchHistory = [];
+        saveHistory();
+        renderHistory();
+    }
+
+    function renderHistory() {
+        if (searchHistory.length === 0) {
+            $historyList.innerHTML = '';
+            $historyEmpty.classList.remove('hidden');
+            return;
+        }
+
+        $historyEmpty.classList.add('hidden');
+        $historyList.innerHTML = searchHistory.map((item, i) => `
+            <div class="history-item" data-index="${i}">
+                <div class="history-icon">
+                    <svg viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M12 6v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <div class="history-text">
+                    <div class="history-name">${escapeHtml(item.name)}</div>
+                    ${item.address ? `<div class="history-address">${escapeHtml(item.address)}</div>` : ''}
+                </div>
+            </div>
+        `).join('');
+
+        // Add click handlers
+        $historyList.querySelectorAll('.history-item').forEach(el => {
+            el.addEventListener('click', () => {
+                const index = parseInt(el.dataset.index);
+                const item = searchHistory[index];
+                if (item) {
+                    selectHistoryItem(item);
+                }
+            });
+        });
+    }
+
+    function selectHistoryItem(item) {
+        // Switch to map view
+        switchView('map');
+
+        // Set as destination
+        $searchInput.value = item.name;
+        $searchClear.classList.remove('hidden');
+        setDestination(item.lat, item.lon, item.name);
+
+        // Move to top of history
+        addToHistory(item);
+    }
+
+    function setupHistoryEvents() {
+        $historyClearBtn.addEventListener('click', () => {
+            if (confirm('Effacer tout l\'historique ?')) {
+                clearHistory();
+            }
+        });
+    }
 
     // ===== INIT MAP =====
     function initMap() {
@@ -84,7 +231,6 @@
         autoLocateOnLoad();
     }
 
-    // ===== AUTO LOCATE ON LOAD =====
     function autoLocateOnLoad() {
         if (!navigator.geolocation) return;
 
@@ -153,23 +299,13 @@
         userPosition = { lat, lng, accuracy: pos.coords.accuracy, heading: pos.coords.heading };
 
         const latlng = [lat, lng];
+        const icon = isNavigating ? createNavIcon() : createDotIcon();
 
-        if (isNavigating) {
-            // Icône flèche navigation
-            if (!userMarker) {
-                userMarker = L.marker(latlng, { icon: createNavIcon(), zIndexOffset: 1000 }).addTo(map);
-            } else {
-                userMarker.setLatLng(latlng);
-                userMarker.setIcon(createNavIcon());
-            }
+        if (!userMarker) {
+            userMarker = L.marker(latlng, { icon: icon, zIndexOffset: 1000 }).addTo(map);
         } else {
-            // Icône point bleu normal
-            if (!userMarker) {
-                userMarker = L.marker(latlng, { icon: createDotIcon(), zIndexOffset: 1000 }).addTo(map);
-            } else {
-                userMarker.setLatLng(latlng);
-                if (!isNavigating) userMarker.setIcon(createDotIcon());
-            }
+            userMarker.setLatLng(latlng);
+            userMarker.setIcon(icon);
         }
     }
 
@@ -296,7 +432,7 @@
             const name = r.display_name.split(',')[0];
             const address = r.display_name.split(',').slice(1, 3).join(',').trim();
             return `
-                <div class="search-result-item" data-index="${i}" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${escapeHtml(name)}">
+                <div class="search-result-item" data-index="${i}" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${escapeHtml(name)}" data-address="${escapeHtml(address)}">
                     <svg class="result-pin" viewBox="0 0 24 24">
                         <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z" fill="currentColor"/>
                     </svg>
@@ -319,11 +455,19 @@
         const lat = parseFloat(item.dataset.lat);
         const lon = parseFloat(item.dataset.lon);
         const name = item.dataset.name;
+        const address = item.dataset.address;
 
         $searchInput.value = name;
         $searchResults.classList.add('hidden');
         $searchClear.classList.remove('hidden');
 
+        // Add to history
+        addToHistory({ name, address, lat, lon });
+
+        // Switch to map view
+        switchView('map');
+
+        // Set destination
         setDestination(lat, lon, name);
     }
 
@@ -337,6 +481,11 @@
             const data = await resp.json();
             hideLoading();
             const name = data.display_name?.split(',')[0] || 'Destination';
+            const address = data.display_name?.split(',').slice(1, 3).join(',').trim() || '';
+
+            // Add to history
+            addToHistory({ name, address, lat, lon });
+
             setDestination(lat, lon, name);
             $searchInput.value = name;
             $searchClear.classList.remove('hidden');
@@ -450,14 +599,13 @@
         $transportModes.classList.add('hidden');
         $activeNav.classList.remove('hidden');
         $locateBtn.classList.add('nav-hidden');
+        document.body.classList.add('navigating');
 
         startWatchingPosition();
         updateNavigationDisplay();
 
-        // Centrer immédiatement sur l'utilisateur avec zoom navigation
         if (userPosition) {
             map.setView([userPosition.lat, userPosition.lng], NAV_ZOOM);
-            // Forcer mise à jour de l'icône
             if (userMarker) userMarker.setIcon(createNavIcon());
         }
 
@@ -470,13 +618,13 @@
         isNavigating = false;
         $activeNav.classList.add('hidden');
         $locateBtn.classList.remove('nav-hidden');
+        document.body.classList.remove('navigating');
         stopWatchingPosition();
 
         if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
         if (routeShadowLayer) { map.removeLayer(routeShadowLayer); routeShadowLayer = null; }
         if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
 
-        // Remettre l'icône normale
         if (userMarker && userPosition) {
             userMarker.setIcon(createDotIcon());
         }
@@ -515,7 +663,6 @@
             $activeNavDistance.textContent = formatDistance(nextDist);
         }
 
-        // Centrer sur l'utilisateur pendant la navigation
         map.setView([userLat, userLng], NAV_ZOOM, { animate: true, duration: 0.5 });
 
         const destDist = haversine(userLat, userLng, destination.lat, destination.lon);
@@ -656,6 +803,6 @@
     $activeNavStop.addEventListener('click', stopNavigation);
 
     // ===== START =====
-    initMap();
+    init();
 
 })();

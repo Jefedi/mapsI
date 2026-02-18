@@ -31,10 +31,43 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Map Container -->
-    <div id="map"></div>
+    <!-- Map View -->
+    <div id="map-view">
+        <!-- Map Container -->
+        <div id="map"></div>
 
-    <!-- Search Bar -->
+        <!-- Locate Me Button -->
+        <button id="locate-btn" aria-label="Ma position">
+            <svg viewBox="0 0 24 24" width="24" height="24">
+                <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Search View (History) -->
+    <div id="search-view" class="hidden">
+        <div id="search-view-header">
+            <h2>Recherche</h2>
+        </div>
+        <div id="history-container">
+            <div id="history-header">
+                <span>Historique</span>
+                <button id="history-clear-btn">Effacer</button>
+            </div>
+            <div id="history-list"></div>
+            <div id="history-empty">
+                <svg viewBox="0 0 24 24" width="48" height="48">
+                    <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+                    <path d="M12 6v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.3"/>
+                </svg>
+                <p>Aucun historique</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search Bar (always visible at top) -->
     <div id="search-container">
         <div id="search-bar">
             <svg id="search-icon" viewBox="0 0 24 24" width="20" height="20">
@@ -47,14 +80,23 @@
         <div id="search-results" class="hidden"></div>
     </div>
 
-    <!-- Locate Me Button -->
-    <button id="locate-btn" aria-label="Ma position">
-        <svg viewBox="0 0 24 24" width="24" height="24">
-            <circle cx="12" cy="12" r="3" fill="currentColor"/>
-            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/>
-        </svg>
-    </button>
+    <!-- Bottom Toolbar -->
+    <div id="toolbar">
+        <button class="toolbar-btn active" data-view="map">
+            <svg viewBox="0 0 24 24" width="24" height="24">
+                <path d="M9 2L4 5v15l5-3 6 3 5-3V2l-5 3-6-3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                <path d="M9 2v15M15 5v15" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+            <span>Carte</span>
+        </button>
+        <button class="toolbar-btn" data-view="search">
+            <svg viewBox="0 0 24 24" width="24" height="24">
+                <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span>Recherche</span>
+        </button>
+    </div>
 
     <!-- Navigation Panel -->
     <div id="nav-panel" class="hidden">

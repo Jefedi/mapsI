@@ -505,3 +505,219 @@ html, body {
 .dark-tiles {
     filter: brightness(0.75) contrast(1.1) saturate(0.8);
 }
+
+/* ===== MAP VIEW ===== */
+#map-view {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 60px; /* Space for toolbar */
+    padding-bottom: var(--safe-bottom);
+}
+
+#map-view #map {
+    bottom: 0;
+}
+
+#map-view #locate-btn {
+    bottom: 24px;
+}
+
+/* ===== SEARCH VIEW ===== */
+#search-view {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: calc(60px + var(--safe-bottom));
+    background: var(--bg-dark);
+    padding-top: calc(var(--safe-top) + 70px); /* Space for search bar */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+#search-view-header {
+    padding: 0 20px 16px;
+    display: none; /* Hide header, using search bar instead */
+}
+
+#search-view-header h2 {
+    font-size: 28px;
+    font-weight: 700;
+}
+
+/* ===== HISTORY ===== */
+#history-container {
+    padding: 0 16px;
+}
+
+#history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 4px 12px;
+}
+
+#history-header span {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+#history-clear-btn {
+    background: none;
+    border: none;
+    color: var(--primary);
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+#history-list {
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.history-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.history-item:last-child {
+    border-bottom: none;
+}
+
+.history-item:active {
+    background: rgba(255,255,255,0.05);
+}
+
+.history-icon {
+    width: 36px;
+    height: 36px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--text-secondary);
+}
+
+.history-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.history-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.history-name {
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.history-address {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#history-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+}
+
+#history-empty svg {
+    margin-bottom: 16px;
+}
+
+#history-empty p {
+    font-size: 15px;
+}
+
+#history-empty.hidden {
+    display: none;
+}
+
+/* ===== BOTTOM TOOLBAR ===== */
+#toolbar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1001;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    height: calc(60px + var(--safe-bottom));
+    padding-bottom: var(--safe-bottom);
+    background: var(--bg-card);
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.toolbar-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    flex: 1;
+    height: 100%;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.toolbar-btn.active {
+    color: var(--primary);
+}
+
+.toolbar-btn svg {
+    width: 24px;
+    height: 24px;
+}
+
+.toolbar-btn span {
+    font-weight: 500;
+}
+
+/* Hide toolbar during active navigation */
+body.navigating #toolbar {
+    display: none;
+}
+
+body.navigating #map-view {
+    bottom: 0;
+}
+
+/* Adjust nav panel position above toolbar */
+#nav-panel {
+    bottom: calc(60px + var(--safe-bottom));
+    padding-bottom: 16px;
+}
