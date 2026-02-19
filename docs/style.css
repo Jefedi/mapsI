@@ -39,19 +39,6 @@ html, body {
     touch-action: manipulation;
 }
 
-/* Fill bottom safe area with toolbar color */
-body::after {
-    content: '';
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: env(safe-area-inset-bottom, 0px);
-    background: var(--bg-card);
-    z-index: 1002;
-    pointer-events: none;
-}
-
 .hidden {
     display: none !important;
 }
@@ -797,10 +784,6 @@ body.navigating .leaflet-control-container {
     transition: transform 0.8s ease-out;
 }
 
-body.navigating::after {
-    display: none;
-}
-
 /* Adjust nav panel position above toolbar */
 #nav-panel {
     bottom: calc(60px + var(--safe-bottom));
@@ -1478,10 +1461,6 @@ body.light-mode .settings-group,
 body.light-mode .history-item,
 body.light-mode .modal-header {
     border-color: rgba(0,0,0,0.08);
-}
-
-body.light-mode::after {
-    background: #ffffff;
 }
 
 /* ===== MANEUVER SVG ICONS ===== */
