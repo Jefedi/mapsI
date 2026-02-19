@@ -2,12 +2,14 @@
 <html lang="fr">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="MapsI">
     <meta name="theme-color" content="#1a1a2e">
+    <meta name="color-scheme" content="dark light">
     <meta name="description" content="MapsI - Navigation GPS gratuite avec OpenStreetMap">
+    <meta name="referrer" content="no-referrer-when-downgrade">
     <title>MapsI</title>
 
     <link rel="manifest" href="manifest.json">
@@ -17,8 +19,8 @@
 </head>
 <body>
     <!-- Map View -->
-    <div id="map-view">
-        <div id="map"></div>
+    <div id="map-view" role="region" aria-label="Carte">
+        <div id="map" role="application" aria-label="Carte interactive"></div>
 
         <!-- Speed Display (during navigation) -->
         <div id="speed-display" class="hidden">
@@ -174,8 +176,8 @@
                 <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
                 <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             </svg>
-            <input type="text" id="search-input" placeholder="Rechercher une adresse..." autocomplete="off" autocorrect="off" autocapitalize="off">
-            <button id="search-clear" class="hidden">&times;</button>
+            <input type="text" id="search-input" placeholder="Rechercher une adresse..." autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="Rechercher une adresse">
+            <button id="search-clear" class="hidden" aria-label="Effacer la recherche">&times;</button>
         </div>
         <!-- Quick-access POI bar -->
         <div id="quick-poi-bar" class="hidden">
@@ -204,14 +206,14 @@
         <div class="quick-poi-popup-content">
             <div class="quick-poi-popup-header">
                 <span id="quick-poi-popup-title"></span>
-                <button id="quick-poi-popup-close">&times;</button>
+                <button id="quick-poi-popup-close" aria-label="Fermer">&times;</button>
             </div>
             <div id="quick-poi-popup-results"></div>
         </div>
     </div>
 
     <!-- Bottom Toolbar -->
-    <div id="toolbar">
+    <nav id="toolbar" aria-label="Navigation principale">
         <button class="toolbar-btn active" data-view="map">
             <svg viewBox="0 0 24 24" width="24" height="24">
                 <path d="M9 2L4 5v15l5-3 6 3 5-3V2l-5 3-6-3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -233,10 +235,10 @@
             </svg>
             <span>Reglages</span>
         </button>
-    </div>
+    </nav>
 
     <!-- Navigation Panel -->
-    <div id="nav-panel" class="hidden">
+    <div id="nav-panel" class="hidden" role="region" aria-label="Itineraire">
         <div id="nav-header">
             <div id="nav-info">
                 <span id="nav-distance"></span>
@@ -244,7 +246,7 @@
                 <span id="nav-duration"></span>
                 <span id="nav-eta"></span>
             </div>
-            <button id="nav-close">&times;</button>
+            <button id="nav-close" aria-label="Fermer la navigation">&times;</button>
         </div>
 
         <!-- Route Alternatives -->
@@ -296,7 +298,7 @@
     </div>
 
     <!-- Active Navigation - Top Instruction -->
-    <div id="active-nav" class="hidden">
+    <div id="active-nav" class="hidden" role="status" aria-live="polite">
         <div id="active-nav-instruction">
             <div id="active-nav-icon"></div>
             <div id="active-nav-text">
@@ -332,7 +334,7 @@
     <div id="poi-panel" class="hidden">
         <div class="poi-header">
             <span>Points d'interet</span>
-            <button id="poi-close">&times;</button>
+            <button id="poi-close" aria-label="Fermer les POI">&times;</button>
         </div>
         <div class="poi-categories">
             <button class="poi-cat-btn" data-cat="fuel">
@@ -360,7 +362,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <span>Ajouter un favori</span>
-                <button id="favorite-modal-close">&times;</button>
+                <button id="favorite-modal-close" aria-label="Fermer">&times;</button>
             </div>
             <div class="modal-body">
                 <input type="text" id="favorite-name" placeholder="Nom (ex: Maison)">
@@ -388,7 +390,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <span>Partager</span>
-                <button id="share-modal-close">&times;</button>
+                <button id="share-modal-close" aria-label="Fermer">&times;</button>
             </div>
             <div class="modal-body">
                 <button id="share-position-btn" class="share-option">

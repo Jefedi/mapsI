@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>MapsI - Hors ligne</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            text-align: center;
+        }
+        svg { margin-bottom: 24px; opacity: 0.5; }
+        h1 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+        p { font-size: 15px; color: #a0a0b0; line-height: 1.5; max-width: 300px; }
+        button {
+            margin-top: 24px;
+            padding: 14px 32px;
+            border: none;
+            border-radius: 14px;
+            background: #0a84ff;
+            color: #fff;
+            font-size: 16px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <svg viewBox="0 0 24 24" width="64" height="64">
+        <path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0119 12.55M5 12.55a10.94 10.94 0 015.17-2.39M10.71 5.05A16 16 0 0122.56 9M1.42 9a15.91 15.91 0 014.7-2.88M8.53 16.11a6 6 0 016.95 0M12 20h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h1>Pas de connexion</h1>
+    <p>MapsI necessite une connexion internet pour charger les cartes et calculer les itineraires.</p>
+    <button onclick="location.reload()">Reessayer</button>
+</body>
+</html>

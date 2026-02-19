@@ -6,13 +6,21 @@ services:
     ports:
       - "127.0.0.1:9565:80"
     depends_on:
-      - nominatim
-      - valhalla
-      - overpass
-      - tileserver
-      - elevation
-      - fuel-proxy
+      nominatim:
+        condition: service_started
+      valhalla:
+        condition: service_started
+      overpass:
+        condition: service_started
+      tileserver:
+        condition: service_started
+      elevation:
+        condition: service_started
+      fuel-proxy:
+        condition: service_started
     restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
 
   # Geocoding (Nominatim)
   nominatim:
@@ -26,20 +34,34 @@ services:
       - nominatim-db:/var/lib/postgresql/14/main
     shm_size: 2g
     restart: unless-stopped
+    mem_limit: 4g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/status"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
 
   # Routing (Valhalla - auto, pedestrian, bicycle in one instance)
   valhalla:
     image: valhalla/valhalla:run-latest
     container_name: valhalla
-    ports:
-      - "8002:8002"
     volumes:
       - ./data/valhalla:/custom_files
     restart: unless-stopped
+    mem_limit: 4g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/status"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
 
   # POI search (Overpass API)
   overpass:
-    image: wiktorn/overpass-api
+    image: wiktorn/overpass-api:0.7.62.1
     container_name: overpass
     environment:
       OVERPASS_META: "no"
@@ -50,15 +72,31 @@ services:
       - ./data/osm:/data:ro
       - overpass-db:/db
     restart: unless-stopped
+    mem_limit: 4g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/api/status"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 300s
 
   # Map tiles (TileServer GL)
   tileserver:
-    image: maptiler/tileserver-gl:latest
+    image: maptiler/tileserver-gl:v4.15.0
     container_name: tileserver
     volumes:
       - ./data/tiles:/data:ro
     command: --config /data/config.json --port 8080
     restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # Elevation data (OpenTopoData - built from source)
   elevation:
@@ -69,6 +107,14 @@ services:
     volumes:
       - ./data/elevation:/data:ro
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # Fuel price proxy (server-side only external requests)
   fuel-proxy:
@@ -79,6 +125,14 @@ services:
     environment:
       SYNC_INTERVAL_MINUTES: "30"
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 volumes:
   nominatim-db:

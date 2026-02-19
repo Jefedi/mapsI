@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mapsi-v29';
+const CACHE_NAME = 'mapsi-v30';
 const STATIC_ASSETS = [
     './',
     './index.html',
@@ -8,7 +8,8 @@ const STATIC_ASSETS = [
     './lib/leaflet/leaflet.css',
     './lib/leaflet/leaflet.js',
     './icons/icon-192.png',
-    './icons/icon-512.png'
+    './icons/icon-512.png',
+    './offline.html'
 ];
 
 // Install - cache static assets
@@ -33,29 +34,46 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
-    // Network-only for local API proxies
+    // Network-only for local API proxies (with offline fallback)
     if (url.pathname.startsWith('/api/')) {
-        event.respondWith(fetch(event.request));
-        return;
-    }
-
-    // Cache first for self-hosted tile images
-    if (url.pathname.startsWith('/tiles/')) {
         event.respondWith(
-            caches.match(event.request).then(cached => {
-                if (cached) return cached;
-                return fetch(event.request).then(response => {
-                    const clone = response.clone();
-                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-                    return response;
+            fetch(event.request).catch(() => {
+                return new Response(JSON.stringify({ error: 'offline' }), {
+                    status: 503,
+                    headers: { 'Content-Type': 'application/json' }
                 });
             })
         );
         return;
     }
 
-    // Cache first, network fallback for static assets
+    // Cache first for self-hosted tile images (only cache successful responses)
+    if (url.pathname.startsWith('/tiles/')) {
+        event.respondWith(
+            caches.match(event.request).then(cached => {
+                if (cached) return cached;
+                return fetch(event.request).then(response => {
+                    if (response.ok) {
+                        const clone = response.clone();
+                        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                    }
+                    return response;
+                }).catch(() => new Response('', { status: 408 }));
+            })
+        );
+        return;
+    }
+
+    // Cache first, network fallback for static assets, offline page as last resort for HTML
     event.respondWith(
-        caches.match(event.request).then(cached => cached || fetch(event.request))
+        caches.match(event.request).then(cached => {
+            if (cached) return cached;
+            return fetch(event.request).catch(() => {
+                if (event.request.mode === 'navigate') {
+                    return caches.match('./offline.html');
+                }
+                return new Response('', { status: 408 });
+            });
+        })
     );
 });

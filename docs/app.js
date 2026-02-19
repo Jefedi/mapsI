@@ -6,7 +6,7 @@
     'use strict';
 
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./sw.js').catch(() => {});
+        navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW registration failed:', e));
     }
 
     // ===== CONFIG =====
@@ -81,6 +81,23 @@
     let longPressTimer = null;
     let longPressStartX = 0;
     let longPressStartY = 0;
+    let routeAbortController = null;
+
+    // ===== TOAST NOTIFICATIONS =====
+    function showToast(message, type = 'info', duration = 3000) {
+        const existing = document.querySelector('.mapsi-toast');
+        if (existing) existing.remove();
+        const toast = document.createElement('div');
+        toast.className = `mapsi-toast mapsi-toast-${type}`;
+        toast.textContent = message;
+        toast.setAttribute('role', 'alert');
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('mapsi-toast-show'));
+        setTimeout(() => {
+            toast.classList.remove('mapsi-toast-show');
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
+    }
 
     // ===== DOM =====
     const $ = id => document.getElementById(id);
@@ -411,7 +428,7 @@
 
     function setupFavoriteEvents() {
         $addFavoriteBtn.addEventListener('click', () => {
-            if (!userPosition) { alert('Position non disponible'); return; }
+            if (!userPosition) { showToast('Position non disponible', 'error'); return; }
             $favoriteName.value = '';
             selectedFavIcon = 'home';
             document.querySelectorAll('.fav-icon-btn').forEach(b => b.classList.toggle('active', b.dataset.icon === 'home'));
@@ -427,7 +444,7 @@
         });
         $saveFavoriteBtn.addEventListener('click', () => {
             const name = $favoriteName.value.trim();
-            if (!name) { alert('Entrez un nom'); return; }
+            if (!name) { showToast('Entrez un nom', 'error'); return; }
             if (!userPosition) return;
             favorites.push({ name, icon: selectedFavIcon, lat: userPosition.lat, lon: userPosition.lng });
             saveFavorites(); renderFavorites(); $favoriteModal.classList.add('hidden');
@@ -565,13 +582,13 @@
         $shareModalClose.addEventListener('click', () => $shareModal.classList.add('hidden'));
         $shareModal.addEventListener('click', (e) => { if (e.target === $shareModal) $shareModal.classList.add('hidden'); });
         $sharePositionBtn.addEventListener('click', () => {
-            if (!userPosition) { alert('Position non disponible'); return; }
+            if (!userPosition) { showToast('Position non disponible', 'error'); return; }
             const url = `https://www.openstreetmap.org/?mlat=${userPosition.lat}&mlon=${userPosition.lng}#map=16/${userPosition.lat}/${userPosition.lng}`;
             shareContent('Ma position', url);
             $shareModal.classList.add('hidden');
         });
         $shareRouteBtn.addEventListener('click', () => {
-            if (!userPosition || !destination) { alert('Aucun itineraire actif'); return; }
+            if (!userPosition || !destination) { showToast('Aucun itineraire actif', 'error'); return; }
             const url = `https://www.openstreetmap.org/directions?from=${userPosition.lat},${userPosition.lng}&to=${destination.lat},${destination.lon}`;
             shareContent('Mon itineraire MapsI', url);
             $shareModal.classList.add('hidden');
@@ -580,7 +597,7 @@
 
     function shareContent(title, url) {
         if (navigator.share) navigator.share({ title, url }).catch(() => {});
-        else navigator.clipboard?.writeText(url).then(() => alert('Lien copie !')).catch(() => alert(url));
+        else navigator.clipboard?.writeText(url).then(() => showToast('Lien copie !', 'success')).catch(() => showToast(url, 'info', 5000));
     }
 
     // ===== 12. POI + FUEL PRICES =====
@@ -600,12 +617,13 @@
     const POI_QUERIES = { fuel: '[amenity=fuel]', restaurant: '[amenity=restaurant]', parking: '[amenity=parking]', pharmacy: '[amenity=pharmacy]' };
 
     async function searchPOI(category) {
-        if (!userPosition) { alert('Position non disponible'); return; }
+        if (!userPosition) { showToast('Position non disponible', 'error'); return; }
         $poiResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Recherche...</div>';
         const query = POI_QUERIES[category];
         const overpassData = `[out:json][timeout:10];node${query}(around:${POI_RADIUS},${userPosition.lat},${userPosition.lng});out body 10;`;
         try {
             const resp = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(overpassData)}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             displayPOIResults(data.elements, category);
         } catch (err) {
@@ -614,7 +632,7 @@
     }
 
     async function searchFuelWithPrices() {
-        if (!userPosition) { alert('Position non disponible'); return; }
+        if (!userPosition) { showToast('Position non disponible', 'error'); return; }
         $poiResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Recherche des stations et prix...</div>';
         try {
             const fuelType = settings.fuelType;
@@ -622,6 +640,7 @@
             const lng = userPosition.lng;
             const url = `${FUEL_API}?limit=15&lat=${lat}&lon=${lng}&radius=${POI_RADIUS}`;
             const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             displayFuelResults(data.results || [], fuelType);
         } catch (err) {
@@ -743,7 +762,7 @@
     }
 
     async function searchQuickPOI(category) {
-        if (!userPosition) { alert('Position non disponible'); return; }
+        if (!userPosition) { showToast('Position non disponible', 'error'); return; }
         $searchInput.blur();
         hideQuickPoiBar();
 
@@ -763,6 +782,7 @@
             const lng = userPosition.lng;
             const url = `${FUEL_API}?limit=15&lat=${lat}&lon=${lng}&radius=${POI_RADIUS}`;
             const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             const stations = data.results || [];
 
@@ -810,6 +830,7 @@
 
         try {
             const resp = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(overpassData)}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             const elements = data.elements || [];
 
@@ -921,7 +942,7 @@
         showLoading();
         navigator.geolocation.getCurrentPosition(
             pos => { hideLoading(); updateUserPosition(pos); map.flyTo([pos.coords.latitude, pos.coords.longitude], 16, { duration: 0.8 }); },
-            err => { hideLoading(); if (err.code === 1 && !locationErrorShown) { locationErrorShown = true; alert('Permission refusee.'); } },
+            err => { hideLoading(); if (err.code === 1 && !locationErrorShown) { locationErrorShown = true; showToast('Permission de localisation refusee', 'error'); } },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
         );
     }
@@ -980,6 +1001,7 @@
         try {
             const query = `[out:json][timeout:5];way(around:30,${lat},${lng})[maxspeed];out tags 1;`;
             const resp = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             if (data.elements && data.elements.length > 0) {
                 const maxspeed = data.elements[0].tags?.maxspeed;
@@ -1078,6 +1100,7 @@
             const params = new URLSearchParams({ q: query, format: 'json', addressdetails: '1', limit: '8', 'accept-language': 'fr' });
             if (userPosition) { params.set('viewbox', `${userPosition.lng-1},${userPosition.lat+1},${userPosition.lng+1},${userPosition.lat-1}`); params.set('bounded', '0'); }
             const resp = await fetch(`${NOMINATIM_URL}/search?${params}`, { headers: { 'User-Agent': 'MapsI-PWA/3.0' } });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             displayResults(await resp.json());
         } catch (err) { console.error('Search error:', err); }
     }
@@ -1118,6 +1141,7 @@
         showLoading();
         try {
             const resp = await fetch(`${NOMINATIM_URL}/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=fr`, { headers: { 'User-Agent': 'MapsI-PWA/3.0' } });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json(); hideLoading();
             const name = data.display_name?.split(',')[0] || 'Destination';
             const address = data.display_name?.split(',').slice(1, 3).join(',').trim() || '';
@@ -1133,7 +1157,7 @@
         destMarker = L.marker([lat, lon], { icon: L.divIcon({ className: 'destination-marker', html: '<svg viewBox="0 0 28 40"><rect x="2" y="0" width="2.5" height="40" rx="1.25" fill="#888"/><rect x="4.5" y="2" width="5" height="4" fill="#333"/><rect x="9.5" y="2" width="5" height="4" fill="#fff"/><rect x="14.5" y="2" width="5" height="4" fill="#333"/><rect x="19.5" y="2" width="5" height="4" fill="#fff" rx="0 2 0 0"/><rect x="4.5" y="6" width="5" height="4" fill="#fff"/><rect x="9.5" y="6" width="5" height="4" fill="#333"/><rect x="14.5" y="6" width="5" height="4" fill="#fff"/><rect x="19.5" y="6" width="5" height="4" fill="#333"/><rect x="4.5" y="10" width="5" height="4" fill="#333"/><rect x="9.5" y="10" width="5" height="4" fill="#fff"/><rect x="14.5" y="10" width="5" height="4" fill="#333"/><rect x="19.5" y="10" width="5" height="4" fill="#fff"/><rect x="4.5" y="14" width="5" height="4" fill="#fff"/><rect x="9.5" y="14" width="5" height="4" fill="#333"/><rect x="14.5" y="14" width="5" height="4" fill="#fff"/><rect x="19.5" y="14" width="5" height="4" fill="#333" rx="0 0 2 0"/></svg>', iconSize: [28, 40], iconAnchor: [3, 40] }) }).addTo(map);
         map.flyTo([lat, lon], 15, { duration: 0.8 });
         if (userPosition) calculateRoute();
-        else navigator.geolocation?.getCurrentPosition(pos => { updateUserPosition(pos); calculateRoute(); }, () => alert('Activez la localisation'), { enableHighAccuracy: true, timeout: 5000 });
+        else navigator.geolocation?.getCurrentPosition(pos => { updateUserPosition(pos); calculateRoute(); }, () => showToast('Activez la localisation', 'error'), { enableHighAccuracy: true, timeout: 5000 });
     }
 
     // ===== ROUTING (multi-stops) =====
@@ -1151,10 +1175,13 @@
             if (settings.avoidToll) body.costing_options[costing].use_tolls = 0;
             if (settings.avoidFerry) body.costing_options[costing].use_ferry = 0;
         }
+        if (routeAbortController) routeAbortController.abort();
+        routeAbortController = new AbortController();
         try {
-            const resp = await fetch(`${VALHALLA_URL}/route`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            const resp = await fetch(`${VALHALLA_URL}/route`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: routeAbortController.signal });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json(); hideLoading();
-            if (data.error_code || data.status_code) { alert('Impossible de calculer le trajet'); return; }
+            if (data.error_code || data.status_code) { showToast('Impossible de calculer le trajet', 'error'); return; }
             allRoutes = normalizeValhallaResponse(data); selectedRouteIndex = 0; selectRoute(0);
             if (!isNavigating) {
                 const coords2 = allRoutes[0].geometry.coordinates.map(c => [c[1], c[0]]);
@@ -1168,7 +1195,10 @@
                 });
             }
             fetchElevationProfile(allRoutes[0].geometry.coordinates);
-        } catch (err) { hideLoading(); alert('Erreur de calcul du trajet'); }
+        } catch (err) {
+            if (err.name === 'AbortError') return;
+            hideLoading(); showToast('Erreur de calcul du trajet', 'error'); console.warn('Route error:', err);
+        }
     }
 
     function selectRoute(index) {
@@ -1315,7 +1345,7 @@
         if (destDist < 30) {
             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
             speak('Vous etes arrive a destination');
-            alert('Vous etes arrive !');
+            showToast('Vous etes arrive !', 'success', 5000);
             stopNavigation();
         }
     }
@@ -1397,6 +1427,7 @@
         const locations = sampled.map(c => `${c[1]},${c[0]}`).join('|');
         try {
             const resp = await fetch(`/api/elevation/v1/mapzen?locations=${locations}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             if (data.status === 'OK' && data.results) {
                 const elevations = data.results.map(r => r.elevation ?? 0);
@@ -1483,15 +1514,16 @@
     }
 
     async function searchParkingNearDest() {
-        if (!destination) { alert('Aucune destination definie'); return; }
+        if (!destination) { showToast('Aucune destination definie', 'error'); return; }
         showLoading();
         const query = `[out:json][timeout:10];node[amenity=parking](around:1500,${destination.lat},${destination.lon});out body 15;`;
         try {
             const resp = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             hideLoading();
             if (!data.elements || data.elements.length === 0) {
-                alert('Aucun parking trouve pres de la destination');
+                showToast('Aucun parking pres de la destination', 'info');
                 return;
             }
             // Show parking markers on map
@@ -1519,7 +1551,7 @@
             map.fitBounds(bounds, { padding: [60, 60] });
         } catch (e) {
             hideLoading();
-            alert('Erreur lors de la recherche de parkings');
+            showToast('Erreur lors de la recherche de parkings', 'error');
         }
     }
 
@@ -1566,8 +1598,8 @@
                 const loc = coords[m.begin_shape_index] || coords[0];
                 return {
                     maneuver: { type: mInfo.type, modifier: mInfo.modifier, location: loc },
-                    name: (m.street_names && m.street_names[0]) || '',
-                    ref: (m.begin_street_names && m.begin_street_names[0]) || '',
+                    name: escapeHtml((m.street_names && m.street_names[0]) || ''),
+                    ref: escapeHtml((m.begin_street_names && m.begin_street_names[0]) || ''),
                     distance: m.length * 1000,
                     duration: m.time
                 };

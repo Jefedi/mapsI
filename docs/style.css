@@ -18,6 +18,15 @@
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     --safe-left: env(safe-area-inset-left, 0px);
     --safe-right: env(safe-area-inset-right, 0px);
+    --border-subtle: rgba(255,255,255,0.06);
+    --glass-light: rgba(255,255,255,0.1);
+    --glass-lighter: rgba(255,255,255,0.06);
+    --z-map: 1;
+    --z-controls: 1000;
+    --z-panels: 1001;
+    --z-modals: 2000;
+    --z-loading: 9999;
+    --z-toast: 10000;
 }
 
 * {
@@ -2040,4 +2049,96 @@ body.light-mode .quick-poi-popup-header {
     .setting-item {
         padding: 10px 16px;
     }
+}
+
+/* ===== ACCESSIBILITY: FOCUS VISIBLE ===== */
+:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+input:focus-visible,
+select:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 0;
+}
+
+/* ===== ACCESSIBILITY: TOUCH TARGETS ===== */
+#search-clear {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 20px;
+}
+
+#nav-close,
+#poi-close,
+#quick-poi-popup-close {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+}
+
+.modal-header button {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 22px;
+}
+
+/* ===== TOAST NOTIFICATIONS ===== */
+.mapsi-toast {
+    position: fixed;
+    top: calc(var(--safe-top) + 64px);
+    left: 50%;
+    transform: translateX(-50%) translateY(-20px);
+    z-index: 10000;
+    padding: 12px 20px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    max-width: calc(100vw - 40px);
+    text-align: center;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+}
+
+.mapsi-toast-show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.mapsi-toast-info {
+    background: var(--bg-card-alpha);
+    color: var(--text);
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.mapsi-toast-success {
+    background: rgba(48, 209, 88, 0.9);
+    color: #fff;
+}
+
+.mapsi-toast-error {
+    background: rgba(255, 69, 58, 0.9);
+    color: #fff;
+}
+
+/* ===== SCROLLBAR FIREFOX ===== */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.15) transparent;
 }
