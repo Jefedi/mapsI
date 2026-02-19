@@ -526,6 +526,8 @@ body::after {
     left: 0;
     right: 0;
     bottom: calc(60px + var(--safe-bottom));
+    overflow: hidden;
+    background: var(--bg-dark);
 }
 
 #map-view #map {
@@ -730,6 +732,15 @@ body.navigating #toolbar {
 
 body.navigating #map-view {
     bottom: 0;
+}
+
+body.navigating #map {
+    transition: transform 0.8s ease-out;
+    will-change: transform;
+}
+
+body.navigating .leaflet-control-container {
+    transition: transform 0.8s ease-out;
 }
 
 body.navigating::after {
