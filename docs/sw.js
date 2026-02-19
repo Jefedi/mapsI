@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mapsi-v27';
+const CACHE_NAME = 'mapsi-v28';
 const STATIC_ASSETS = [
     './',
     './index.html',
@@ -32,7 +32,7 @@ self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
     // Network-only for API calls
-    if (url.hostname.includes('nominatim') || url.hostname.includes('router.project-osrm') || url.hostname.includes('overpass-api') || url.hostname.includes('data.economie.gouv.fr') || url.hostname.includes('opentopodata.org')) {
+    if (url.hostname.includes('nominatim') || url.hostname.includes('router.project-osrm') || url.hostname.includes('routing.openstreetmap.de') || url.hostname.includes('overpass-api') || url.hostname.includes('data.economie.gouv.fr') || url.hostname.includes('opentopodata.org')) {
         event.respondWith(fetch(event.request));
         return;
     }

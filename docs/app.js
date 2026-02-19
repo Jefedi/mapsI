@@ -11,7 +11,11 @@
 
     // ===== CONFIG =====
     const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
-    const OSRM_URL = 'https://router.project-osrm.org';
+    const OSRM_URLS = {
+        driving: 'https://routing.openstreetmap.de/routed-car',
+        walking: 'https://routing.openstreetmap.de/routed-foot',
+        cycling: 'https://routing.openstreetmap.de/routed-bike'
+    };
     const FUEL_API = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records';
     const DEFAULT_CENTER = [46.603354, 1.888334];
     const DEFAULT_ZOOM = 6;
@@ -1144,18 +1148,19 @@
     async function calculateRoute() {
         if (!userPosition || !destination) return;
         showLoading();
+        const osrmBase = OSRM_URLS[transportMode] || OSRM_URLS.driving;
         const profile = transportMode === 'walking' ? 'foot' : transportMode === 'cycling' ? 'bike' : 'car';
         // Build coordinates string with waypoints
         let coords = `${userPosition.lng},${userPosition.lat}`;
         waypoints.forEach(wp => { coords += `;${wp.lon},${wp.lat}`; });
         coords += `;${destination.lon},${destination.lat}`;
-        // 6. Build exclude parameter for avoid highways/tolls
+        // Build exclude parameter for avoid highways/tolls
         const excludes = [];
         if (settings.avoidMotorway) excludes.push('motorway');
         if (settings.avoidToll) excludes.push('toll');
         if (settings.avoidFerry) excludes.push('ferry');
         const excludeParam = excludes.length > 0 ? `&exclude=${excludes.join(',')}` : '';
-        const url = `${OSRM_URL}/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=true&alternatives=${waypoints.length === 0 ? 'true' : 'false'}${excludeParam}`;
+        const url = `${osrmBase}/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=true&alternatives=${waypoints.length === 0 ? 'true' : 'false'}${excludeParam}`;
         try {
             const resp = await fetch(url);
             const data = await resp.json(); hideLoading();
