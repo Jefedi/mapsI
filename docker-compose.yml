@@ -87,7 +87,7 @@ services:
 
   # Map tiles (TileServer GL)
   tileserver:
-    image: maptiler/tileserver-gl:v4.15.0
+    image: maptiler/tileserver-gl:v5.5.0
     container_name: tileserver
     volumes:
       - ./data/tiles:/data:ro
