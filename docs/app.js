@@ -1148,9 +1148,14 @@
             allRoutes = data.routes; selectedRouteIndex = 0; selectRoute(0);
             if (!isNavigating) {
                 const coords2 = allRoutes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-                map.fitBounds(L.latLngBounds(coords2), { padding: [60, 60] });
                 displayRouteAlternatives();
                 showNavPanel();
+                const navPanelHeight = $navPanel.offsetHeight || 200;
+                const paddingBottom = navPanelHeight + 60 + 20;
+                map.fitBounds(L.latLngBounds(coords2), {
+                    paddingTopLeft: [40, 80],
+                    paddingBottomRight: [40, paddingBottom]
+                });
             }
             fetchElevationProfile(allRoutes[0].geometry.coordinates);
         } catch (err) { hideLoading(); alert('Erreur de calcul du trajet'); }

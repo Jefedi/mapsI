@@ -376,9 +376,12 @@ html, body {
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border-radius: 20px 20px 0 0;
-    padding: 16px 20px calc(var(--safe-bottom) + 16px);
+    padding: 16px 20px 12px;
     box-shadow: 0 -4px 30px rgba(0,0,0,0.4);
     border-top: 1px solid rgba(255,255,255,0.08);
+    max-height: 45vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 #nav-header {
@@ -893,7 +896,7 @@ body.navigating .leaflet-control-container {
 /* Adjust nav panel position above toolbar */
 #nav-panel {
     bottom: calc(60px + var(--safe-bottom));
-    padding-bottom: 16px;
+    padding-bottom: 12px;
 }
 
 /* ===== SETTINGS VIEW ===== */
