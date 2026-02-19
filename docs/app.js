@@ -1,5 +1,5 @@
 // ==========================================
-// MapsI PWA v3.1 - Navigation GPS avec OpenStreetMap
+// MapsI PWA v3.2 - Navigation GPS avec OpenStreetMap
 // ==========================================
 
 (function() {
@@ -11,7 +11,11 @@
 
     // ===== CONFIG =====
     const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
-    const OSRM_URL = 'https://router.project-osrm.org';
+    const OSRM_URLS = {
+        driving: 'https://routing.openstreetmap.de/routed-car',
+        walking: 'https://routing.openstreetmap.de/routed-foot',
+        cycling: 'https://routing.openstreetmap.de/routed-bike'
+    };
     const FUEL_API = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records';
     const DEFAULT_CENTER = [46.603354, 1.888334];
     const DEFAULT_ZOOM = 6;
@@ -76,6 +80,8 @@
     let currentSpeedLimit = null;
     let speedLimitTimeout = null;
     let addingWaypoint = false;
+    let lastMatchedSegmentIndex = 0;
+    let snappedPosition = null;
 
     let longPressTimer = null;
     let longPressStartX = 0;
@@ -89,6 +95,7 @@
     const $searchInput = $('search-input');
     const $searchClear = $('search-clear');
     const $searchResults = $('search-results');
+    const $searchContainer = $('search-container');
     const $locateBtn = $('locate-btn');
     const $poiBtn = $('poi-btn');
     const $poiPanel = $('poi-panel');
@@ -147,6 +154,11 @@
     const $elevationCanvas = $('elevation-canvas');
     const $elevationInfo = $('elevation-info');
     const $navParkingBtn = $('nav-parking-btn');
+    const $quickPoiBar = $('quick-poi-bar');
+    const $quickPoiPopup = $('quick-poi-popup');
+    const $quickPoiPopupTitle = $('quick-poi-popup-title');
+    const $quickPoiPopupResults = $('quick-poi-popup-results');
+    const $quickPoiPopupClose = $('quick-poi-popup-close');
 
     // ===== INIT =====
     function init() {
@@ -161,6 +173,7 @@
         setupFavoriteEvents();
         setupShareEvents();
         setupPOIEvents();
+        setupQuickPOIEvents();
         setupWaypointEvents();
         setupParkingEvents();
         renderHistory();
@@ -293,6 +306,8 @@
         $mapView.classList.toggle('hidden', view !== 'map');
         $searchView.classList.toggle('hidden', view !== 'search');
         $settingsView.classList.toggle('hidden', view !== 'settings');
+        $searchContainer.classList.toggle('hidden', view === 'settings');
+        hideQuickPoiBar();
         if (view === 'map') setTimeout(() => map.invalidateSize(), 100);
         else if (view === 'search') { renderHistory(); renderFavorites(); }
     }
@@ -711,12 +726,191 @@
 
     function clearPOIMarkers() { poiMarkers.forEach(m => map.removeLayer(m)); poiMarkers = []; }
 
+    // ===== 12b. QUICK POI BAR =====
+    function showQuickPoiBar() {
+        if (addingWaypoint) return;
+        $quickPoiBar.classList.remove('hidden');
+    }
+
+    function hideQuickPoiBar() {
+        $quickPoiBar.classList.add('hidden');
+    }
+
+    function setupQuickPOIEvents() {
+        document.querySelectorAll('.quick-poi-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                searchQuickPOI(btn.dataset.qpoi);
+            });
+        });
+        $quickPoiPopupClose.addEventListener('click', closeQuickPoiPopup);
+        $quickPoiPopup.addEventListener('click', (e) => {
+            if (e.target === $quickPoiPopup) closeQuickPoiPopup();
+        });
+    }
+
+    async function searchQuickPOI(category) {
+        if (!userPosition) { alert('Position non disponible'); return; }
+        $searchInput.blur();
+        hideQuickPoiBar();
+
+        const titles = { fuel: 'Stations-service', parking: 'Parking', rest_area: 'Aires de repos', toilets: 'Toilettes publiques' };
+        $quickPoiPopupTitle.textContent = titles[category] || category;
+        $quickPoiPopupResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Recherche...</div>';
+        $quickPoiPopup.classList.remove('hidden');
+
+        if (category === 'fuel') await searchQuickFuel();
+        else await searchQuickOverpass(category);
+    }
+
+    async function searchQuickFuel() {
+        try {
+            const fuelType = settings.fuelType;
+            const lat = userPosition.lat;
+            const lng = userPosition.lng;
+            const where = `within_distance(geom, geom'POINT(${lng} ${lat})', ${POI_RADIUS}m)`;
+            const url = `${FUEL_API}?limit=15&where=${encodeURIComponent(where)}&select=adresse,ville,cp,geom,prix,horaires`;
+            const resp = await fetch(url);
+            const data = await resp.json();
+            const stations = data.results || [];
+
+            if (!stations || stations.length === 0) {
+                $quickPoiPopupResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Aucune station a proximite</div>';
+                return;
+            }
+
+            const results = stations.map(s => {
+                const coords = s.geom;
+                if (!coords) return null;
+                const sLat = coords.lat, sLon = coords.lon;
+                const dist = haversine(userPosition.lat, userPosition.lng, sLat, sLon);
+                let price = null;
+                if (s.prix) {
+                    try {
+                        const prixArr = typeof s.prix === 'string' ? JSON.parse(s.prix) : s.prix;
+                        if (Array.isArray(prixArr)) {
+                            const found = prixArr.find(p => p.nom === fuelType || p['@nom'] === fuelType);
+                            if (found) price = parseFloat(found.valeur || found['@valeur']);
+                        }
+                    } catch (e) {}
+                }
+                return { name: s.adresse || 'Station', ville: s.ville || '', lat: sLat, lon: sLon, dist, price };
+            }).filter(Boolean).sort((a, b) => a.dist - b.dist);
+
+            renderQuickPoiResults(results, 'fuel');
+        } catch (err) {
+            await searchQuickOverpass('fuel_fallback');
+        }
+    }
+
+    async function searchQuickOverpass(category) {
+        const lat = userPosition.lat;
+        const lng = userPosition.lng;
+        const radius = category === 'rest_area' ? 15000 : POI_RADIUS;
+        const queries = {
+            parking: `[out:json][timeout:10];(node[amenity=parking](around:${radius},${lat},${lng});way[amenity=parking](around:${radius},${lat},${lng}););out body center 15;`,
+            rest_area: `[out:json][timeout:10];(node[highway=rest_area](around:${radius},${lat},${lng});way[highway=rest_area](around:${radius},${lat},${lng});node[highway=services](around:${radius},${lat},${lng});way[highway=services](around:${radius},${lat},${lng}););out body center 15;`,
+            toilets: `[out:json][timeout:10];(node[amenity=toilets](around:${radius},${lat},${lng});way[amenity=toilets](around:${radius},${lat},${lng}););out body center 15;`,
+            fuel_fallback: `[out:json][timeout:10];node[amenity=fuel](around:${POI_RADIUS},${lat},${lng});out body 15;`
+        };
+        const overpassData = queries[category];
+        if (!overpassData) return;
+
+        try {
+            const resp = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassData)}`);
+            const data = await resp.json();
+            const elements = data.elements || [];
+
+            if (elements.length === 0) {
+                $quickPoiPopupResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Aucun resultat a proximite</div>';
+                return;
+            }
+
+            const results = elements.map(el => {
+                const elLat = el.lat || el.center?.lat;
+                const elLon = el.lon || el.center?.lon;
+                if (!elLat || !elLon) return null;
+                const dist = haversine(userPosition.lat, userPosition.lng, elLat, elLon);
+                const name = el.tags?.name || getQuickPoiDefaultName(category);
+                const extra = buildQuickPoiExtraInfo(el, category);
+                return { name, lat: elLat, lon: elLon, dist, extra };
+            }).filter(Boolean).sort((a, b) => a.dist - b.dist);
+
+            renderQuickPoiResults(results, category);
+        } catch (err) {
+            $quickPoiPopupResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--danger)">Erreur de recherche</div>';
+        }
+    }
+
+    function getQuickPoiDefaultName(category) {
+        const defaults = { parking: 'Parking', rest_area: 'Aire de repos', toilets: 'Toilettes', fuel_fallback: 'Station-service' };
+        return defaults[category] || 'POI';
+    }
+
+    function buildQuickPoiExtraInfo(el, category) {
+        const parts = [];
+        if (category === 'parking') {
+            if (el.tags?.fee === 'yes') parts.push('Payant');
+            else if (el.tags?.fee === 'no') parts.push('Gratuit');
+            if (el.tags?.capacity) parts.push(el.tags.capacity + ' places');
+        } else if (category === 'rest_area') {
+            if (el.tags?.toilets === 'yes') parts.push('WC');
+            if (el.tags?.fuel === 'yes') parts.push('Carburant');
+        } else if (category === 'toilets') {
+            if (el.tags?.fee === 'yes') parts.push('Payant');
+            else if (el.tags?.fee === 'no') parts.push('Gratuit');
+            if (el.tags?.wheelchair === 'yes') parts.push('PMR');
+        }
+        return parts.join(' · ');
+    }
+
+    function renderQuickPoiResults(results, category) {
+        const iconSvgs = {
+            fuel: '<path d="M3 22V6a2 2 0 012-2h8a2 2 0 012 2v16M3 22h12M15 10h2a2 2 0 012 2v5a2 2 0 002 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+            fuel_fallback: '<path d="M3 22V6a2 2 0 012-2h8a2 2 0 012 2v16M3 22h12M15 10h2a2 2 0 012 2v5a2 2 0 002 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+            parking: '<rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 17V7h4a3 3 0 010 6H9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+            rest_area: '<path d="M4 20h3l2-4h6l2 4h3M6 16l2-6h8l2 6M9 6a3 3 0 106 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+            toilets: '<path d="M8 2v4M16 2v4M5 6h6v3a3 3 0 01-3 3H8a3 3 0 01-3-3V6zM13 6h6l-1 6h-4l-1-6zM8 12v10M16 12v10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+        };
+        const icon = iconSvgs[category] || iconSvgs.parking;
+
+        $quickPoiPopupResults.innerHTML = results.map(r => `
+            <div class="poi-item" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${escapeHtml(r.name)}">
+                <div class="poi-item-icon"><svg viewBox="0 0 24 24" width="20" height="20">${icon}</svg></div>
+                <div class="poi-item-text">
+                    <div class="poi-item-name">${escapeHtml(r.name)}</div>
+                    <div class="poi-item-dist">${r.extra ? escapeHtml(r.extra) + ' · ' : ''}${formatDistance(r.dist)}</div>
+                </div>
+                ${r.price ? `<span class="poi-item-price">${r.price.toFixed(3)} &euro;</span>` : ''}
+            </div>
+        `).join('');
+
+        $quickPoiPopupResults.querySelectorAll('.poi-item').forEach(el => {
+            el.addEventListener('click', () => {
+                const lat = parseFloat(el.dataset.lat);
+                const lon = parseFloat(el.dataset.lon);
+                const name = el.dataset.name;
+                closeQuickPoiPopup();
+                setDestination(lat, lon, name);
+                $searchInput.value = name;
+                $searchClear.classList.remove('hidden');
+                addToHistory({ name, address: '', lat, lon });
+            });
+        });
+    }
+
+    function closeQuickPoiPopup() {
+        $quickPoiPopup.classList.add('hidden');
+        $quickPoiPopupResults.innerHTML = '';
+    }
+
     // ===== MAP INIT =====
     function initMap() {
         map = L.map('map', { center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM, zoomControl: false, attributionControl: true });
         const tile = MAP_TILES[settings.mapStyle] || MAP_TILES.standard;
         tileLayer = L.tileLayer(tile.url, { maxZoom: tile.maxZoom, attribution: tile.attr }).addTo(map);
-        setTimeout(() => applySettings(), 100);
+        setTimeout(() => { applySettings(); map.invalidateSize(); }, 100);
+        window.addEventListener('load', () => map.invalidateSize());
         setupMapEvents();
         autoLocateOnLoad();
     }
@@ -753,10 +947,24 @@
 
     function updateUserPosition(pos) {
         const lat = pos.coords.latitude, lng = pos.coords.longitude, speed = pos.coords.speed;
+        const wasNavigating = userPosition ? userPosition._navIcon : false;
         userPosition = { lat, lng, accuracy: pos.coords.accuracy, heading: pos.coords.heading, speed };
-        const icon = isNavigating ? createNavIcon(pos.coords.heading) : createDotIcon();
-        if (!userMarker) userMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(map);
-        else { userMarker.setLatLng([lat, lng]); userMarker.setIcon(icon); }
+        let displayLat = lat, displayLng = lng;
+        if (isNavigating && routeData) {
+            const snap = snapToRoute(lat, lng);
+            if (snap) { displayLat = snap.lat; displayLng = snap.lng; }
+        }
+        if (!userMarker) {
+            const icon = isNavigating ? createNavIcon() : createDotIcon();
+            userMarker = L.marker([displayLat, displayLng], { icon, zIndexOffset: 1000 }).addTo(map);
+            userPosition._navIcon = isNavigating;
+        } else {
+            userMarker.setLatLng([displayLat, displayLng]);
+            if (isNavigating !== wasNavigating) {
+                userMarker.setIcon(isNavigating ? createNavIcon() : createDotIcon());
+                userPosition._navIcon = isNavigating;
+            }
+        }
         updateSpeedDisplay(speed);
     }
 
@@ -805,9 +1013,8 @@
         return L.divIcon({ className: '', html: '<div class="user-location-pulse"></div><div class="user-location-dot"></div>', iconSize: [20, 20], iconAnchor: [10, 10] });
     }
 
-    function createNavIcon(heading) {
-        const rot = (heading != null && !isNaN(heading)) ? heading : 0;
-        return L.divIcon({ className: 'user-nav-marker', html: `<svg viewBox="0 0 48 48" style="transform:rotate(${rot}deg);transition:transform 0.5s ease-out"><path d="M24 4L40 36L24 26L8 36Z" fill="#0a84ff" stroke="white" stroke-width="3" stroke-linejoin="round"/></svg>`, iconSize: [48, 48], iconAnchor: [24, 24] });
+    function createNavIcon() {
+        return L.divIcon({ className: 'user-nav-marker', html: '<svg viewBox="0 0 48 48"><defs><filter id="ns" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.5"/></filter></defs><path d="M24 6L38 34L24 25L10 34Z" fill="#0a84ff" filter="url(#ns)"/></svg>', iconSize: [48, 48], iconAnchor: [24, 24] });
     }
 
     function updateMapBearing(heading) {
@@ -842,7 +1049,7 @@
         mapEl.addEventListener('touchmove', handleTouchMove, { passive: true });
         mapEl.addEventListener('touchend', handleTouchEnd, { passive: true });
         mapEl.addEventListener('touchcancel', handleTouchEnd, { passive: true });
-        map.on('click', () => { $searchResults.classList.add('hidden'); $searchInput.blur(); });
+        map.on('click', () => { $searchResults.classList.add('hidden'); hideQuickPoiBar(); $searchInput.blur(); });
     }
 
     function handleTouchStart(e) {
@@ -941,18 +1148,19 @@
     async function calculateRoute() {
         if (!userPosition || !destination) return;
         showLoading();
+        const osrmBase = OSRM_URLS[transportMode] || OSRM_URLS.driving;
         const profile = transportMode === 'walking' ? 'foot' : transportMode === 'cycling' ? 'bike' : 'car';
         // Build coordinates string with waypoints
         let coords = `${userPosition.lng},${userPosition.lat}`;
         waypoints.forEach(wp => { coords += `;${wp.lon},${wp.lat}`; });
         coords += `;${destination.lon},${destination.lat}`;
-        // 6. Build exclude parameter for avoid highways/tolls
+        // Build exclude parameter for avoid highways/tolls
         const excludes = [];
         if (settings.avoidMotorway) excludes.push('motorway');
         if (settings.avoidToll) excludes.push('toll');
         if (settings.avoidFerry) excludes.push('ferry');
         const excludeParam = excludes.length > 0 ? `&exclude=${excludes.join(',')}` : '';
-        const url = `${OSRM_URL}/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=true&alternatives=${waypoints.length === 0 ? 'true' : 'false'}${excludeParam}`;
+        const url = `${osrmBase}/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=true&alternatives=${waypoints.length === 0 ? 'true' : 'false'}${excludeParam}`;
         try {
             const resp = await fetch(url);
             const data = await resp.json(); hideLoading();
@@ -960,9 +1168,14 @@
             allRoutes = data.routes; selectedRouteIndex = 0; selectRoute(0);
             if (!isNavigating) {
                 const coords2 = allRoutes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-                map.fitBounds(L.latLngBounds(coords2), { padding: [60, 60] });
                 displayRouteAlternatives();
                 showNavPanel();
+                const navPanelHeight = $navPanel.offsetHeight || 200;
+                const paddingBottom = navPanelHeight + 60 + 20;
+                map.fitBounds(L.latLngBounds(coords2), {
+                    paddingTopLeft: [40, 80],
+                    paddingBottomRight: [40, paddingBottom]
+                });
             }
             fetchElevationProfile(allRoutes[0].geometry.coordinates);
         } catch (err) { hideLoading(); alert('Erreur de calcul du trajet'); }
@@ -970,7 +1183,7 @@
 
     function selectRoute(index) {
         selectedRouteIndex = index;
-        routeData = allRoutes[index];
+        routeData = allRoutes[index]; lastMatchedSegmentIndex = 0; snappedPosition = null;
         // Flatten all legs' steps
         routeSteps = [];
         routeData.legs.forEach(leg => { routeSteps.push(...leg.steps); });
@@ -1054,20 +1267,20 @@
 
     // ===== ACTIVE NAVIGATION =====
     function startNavigation() {
-        isNavigating = true; currentStepIndex = 0; lastSpokenStep = -1;
+        isNavigating = true; currentStepIndex = 0; lastSpokenStep = -1; lastMatchedSegmentIndex = 0; snappedPosition = null;
         $navPanel.classList.add('hidden'); $transportModes.classList.add('hidden'); $routeAlternatives.classList.add('hidden');
         $activeNav.classList.remove('hidden'); $activeNavBottom.classList.remove('hidden'); $locateBtn.classList.add('nav-hidden');
         document.body.classList.add('navigating');
         clearAltRouteLayers();
         startWatchingPosition(); updateNavigationDisplay();
-        if (userPosition) { map.setView([userPosition.lat, userPosition.lng], NAV_ZOOM); if (userMarker) userMarker.setIcon(createNavIcon(userPosition.heading)); updateMapBearing(userPosition.heading); }
+        if (userPosition) { map.setView([userPosition.lat, userPosition.lng], NAV_ZOOM); if (userMarker) userMarker.setIcon(createNavIcon()); userPosition._navIcon = true; updateMapBearing(userPosition.heading); }
         if (settings.showSpeed) $speedDisplay.classList.remove('hidden');
         if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(() => {});
         speakStep(0);
     }
 
     function stopNavigation() {
-        isNavigating = false;
+        isNavigating = false; lastMatchedSegmentIndex = 0; snappedPosition = null;
         resetMapBearing();
         $activeNav.classList.add('hidden'); $activeNavBottom.classList.add('hidden'); $speedDisplay.classList.add('hidden'); $speedLimit.classList.add('hidden');
         $elevationProfile.classList.add('hidden');
@@ -1078,7 +1291,7 @@
         if (routeShadowLayer) { map.removeLayer(routeShadowLayer); routeShadowLayer = null; }
         if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
         clearAltRouteLayers(); clearPOIMarkers(); clearWaypoints();
-        if (userMarker && userPosition) userMarker.setIcon(createDotIcon());
+        if (userMarker && userPosition) { userMarker.setIcon(createDotIcon()); userPosition._navIcon = false; }
         if (userPosition) map.setView([userPosition.lat, userPosition.lng], 15);
         $transportModes.classList.add('hidden'); $searchInput.value = ''; $searchClear.classList.add('hidden');
         destination = null; routeData = null; routeSteps = []; allRoutes = []; currentSpeedLimit = null;
@@ -1097,10 +1310,13 @@
             speakStep(currentStepIndex);
         }
         const nextStep = routeSteps[currentStepIndex];
-        if (nextStep) $activeNavDistance.textContent = formatDistance(haversine(userLat, userLng, nextStep.maneuver.location[1], nextStep.maneuver.location[0]));
-        updateRemainingInfo(userLat, userLng);
-        map.setView([userLat, userLng], NAV_ZOOM, { animate: true, duration: 0.5 });
-        updateMapBearing(pos.coords.heading);
+        const dispLat = snappedPosition ? snappedPosition.lat : userLat;
+        const dispLng = snappedPosition ? snappedPosition.lng : userLng;
+        if (nextStep) $activeNavDistance.textContent = formatDistance(haversine(dispLat, dispLng, nextStep.maneuver.location[1], nextStep.maneuver.location[0]));
+        updateRemainingInfo(dispLat, dispLng);
+        map.setView([dispLat, dispLng], NAV_ZOOM, { animate: true, duration: 0.5 });
+        const heading = (snappedPosition && snappedPosition.bearing != null) ? snappedPosition.bearing : pos.coords.heading;
+        updateMapBearing(heading);
         if (settings.autoReroute) checkOffRoute(userLat, userLng);
         // 7. Speed limit
         fetchSpeedLimit(userLat, userLng);
@@ -1325,6 +1541,54 @@
         const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
+    // ===== SNAP-TO-ROUTE =====
+    function projectPointOnSegment(pLat, pLon, aLat, aLon, bLat, bLon) {
+        const cosLat = Math.cos(aLat * Math.PI / 180);
+        const mPerDegLat = 110540, mPerDegLon = 111320 * cosLat;
+        const abLat = (bLat - aLat) * mPerDegLat, abLon = (bLon - aLon) * mPerDegLon;
+        const apLat = (pLat - aLat) * mPerDegLat, apLon = (pLon - aLon) * mPerDegLon;
+        const abDotAb = abLat * abLat + abLon * abLon;
+        if (abDotAb < 1e-10) return { lat: aLat, lon: aLon, t: 0, distMeters: Math.sqrt(apLat * apLat + apLon * apLon) };
+        let t = (apLat * abLat + apLon * abLon) / abDotAb;
+        t = Math.max(0, Math.min(1, t));
+        const projLat = t * abLat, projLon = t * abLon;
+        const dLat = apLat - projLat, dLon = apLon - projLon;
+        return { lat: aLat + projLat / mPerDegLat, lon: aLon + projLon / mPerDegLon, t, distMeters: Math.sqrt(dLat * dLat + dLon * dLon) };
+    }
+
+    function calculateSegmentBearing(lat1, lon1, lat2, lon2) {
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const lat1R = lat1 * Math.PI / 180, lat2R = lat2 * Math.PI / 180;
+        const y = Math.sin(dLon) * Math.cos(lat2R);
+        const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLon);
+        return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    }
+
+    function snapToRoute(userLat, userLon) {
+        if (!routeData?.geometry?.coordinates) return null;
+        const coords = routeData.geometry.coordinates;
+        if (coords.length < 2) return null;
+        let bestDist = Infinity, bestResult = null, bestIdx = lastMatchedSegmentIndex;
+        const startIdx = Math.max(0, lastMatchedSegmentIndex - 10);
+        const endIdx = Math.min(coords.length - 1, lastMatchedSegmentIndex + 50);
+        for (let i = startIdx; i < endIdx; i++) {
+            const proj = projectPointOnSegment(userLat, userLon, coords[i][1], coords[i][0], coords[i + 1][1], coords[i + 1][0]);
+            if (proj.distMeters < bestDist) { bestDist = proj.distMeters; bestResult = proj; bestIdx = i; }
+        }
+        if (bestDist > REROUTE_THRESHOLD) {
+            for (let i = 0; i < coords.length - 1; i++) {
+                if (i >= startIdx && i < endIdx) continue;
+                const proj = projectPointOnSegment(userLat, userLon, coords[i][1], coords[i][0], coords[i + 1][1], coords[i + 1][0]);
+                if (proj.distMeters < bestDist) { bestDist = proj.distMeters; bestResult = proj; bestIdx = i; }
+            }
+        }
+        if (bestDist > REROUTE_THRESHOLD || !bestResult) { snappedPosition = null; return null; }
+        lastMatchedSegmentIndex = bestIdx;
+        const bearing = calculateSegmentBearing(coords[bestIdx][1], coords[bestIdx][0], coords[bestIdx + 1][1], coords[bestIdx + 1][0]);
+        snappedPosition = { lat: bestResult.lat, lng: bestResult.lon, bearing };
+        return snappedPosition;
+    }
+
     function translateManeuver(type, modifier, street) {
         const name = street || 'la route';
         const turns = { 'turn-left': 'Tournez a gauche', 'turn-right': 'Tournez a droite', 'turn-slight left': 'Legere gauche', 'turn-slight right': 'Legere droite', 'turn-sharp left': 'Tournez fortement a gauche', 'turn-sharp right': 'Tournez fortement a droite', 'continue-': 'Continuez tout droit', 'depart-': 'Depart', 'arrive-': 'Vous etes arrive', 'roundabout-': 'Au rond-point', 'merge-': 'Rejoignez', 'fork-left': 'Prenez a gauche', 'fork-right': 'Prenez a droite' };
@@ -1336,9 +1600,18 @@
     function hideLoading() { $loading.classList.add('hidden'); }
 
     // ===== EVENT LISTENERS =====
-    $searchInput.addEventListener('input', e => { const val = e.target.value.trim(); $searchClear.classList.toggle('hidden', val.length === 0); debounceSearch(val); });
-    $searchInput.addEventListener('focus', () => { if ($searchInput.value.trim().length >= 2) debounceSearch($searchInput.value.trim()); });
-    $searchClear.addEventListener('click', () => { $searchInput.value = ''; $searchClear.classList.add('hidden'); $searchResults.classList.add('hidden'); $searchInput.focus(); if (addingWaypoint) { addingWaypoint = false; $searchInput.placeholder = 'Rechercher une adresse...'; } });
+    $searchInput.addEventListener('input', e => {
+        const val = e.target.value.trim();
+        $searchClear.classList.toggle('hidden', val.length === 0);
+        if (val.length >= 2) hideQuickPoiBar();
+        else if (val.length === 0) showQuickPoiBar();
+        debounceSearch(val);
+    });
+    $searchInput.addEventListener('focus', () => {
+        if ($searchInput.value.trim().length >= 2) { hideQuickPoiBar(); debounceSearch($searchInput.value.trim()); }
+        else showQuickPoiBar();
+    });
+    $searchClear.addEventListener('click', () => { $searchInput.value = ''; $searchClear.classList.add('hidden'); $searchResults.classList.add('hidden'); showQuickPoiBar(); $searchInput.focus(); if (addingWaypoint) { addingWaypoint = false; $searchInput.placeholder = 'Rechercher une adresse...'; } });
     $locateBtn.addEventListener('click', () => { if (isTracking) stopWatchingPosition(); else { locateUser(); startWatchingPosition(); } });
     document.querySelectorAll('.transport-btn').forEach(btn => btn.addEventListener('click', () => selectTransportMode(btn.dataset.mode)));
     $navClose.addEventListener('click', () => {
