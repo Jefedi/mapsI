@@ -32,13 +32,12 @@ fi
 echo ""
 echo "--- 2/5 Construction des tuiles Valhalla (routage) ---"
 if [ ! -d "$DATA_DIR/valhalla/valhalla_tiles" ]; then
+    echo "Copie du PBF dans le repertoire Valhalla..."
     cp "$DATA_DIR/osm/france-latest.osm.pbf" "$DATA_DIR/valhalla/france-latest.osm.pbf"
-    docker run --rm -v "$DATA_DIR/valhalla:/custom_files" \
-        ghcr.io/gis-ops/valhalla:latest \
-        valhalla_build_tiles -c /custom_files/valhalla.json /custom_files/france-latest.osm.pbf
-    # Cleanup PBF copy from valhalla dir
-    rm -f "$DATA_DIR/valhalla/france-latest.osm.pbf"
-    echo "OK: Tuiles Valhalla construites"
+    echo "Construction des tuiles (cela peut prendre 1-2h)..."
+    echo "Les tuiles seront construites automatiquement au premier demarrage du conteneur Valhalla."
+    echo "Le conteneur detecte le PBF dans /custom_files/ et construit les tuiles."
+    echo "OK: PBF copie pour Valhalla"
 else
     echo "SKIP: Tuiles Valhalla deja presentes"
 fi

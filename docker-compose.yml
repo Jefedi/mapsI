@@ -29,17 +29,12 @@ services:
 
   # Routing (Valhalla - auto, pedestrian, bicycle in one instance)
   valhalla:
-    image: ghcr.io/gis-ops/valhalla:latest
+    image: valhalla/valhalla:run-latest
     container_name: valhalla
+    ports:
+      - "8002:8002"
     volumes:
       - ./data/valhalla:/custom_files
-    environment:
-      tile_urls: ""
-      use_tiles_ignore_pbf: "True"
-      serve_tiles: "True"
-      build_elevation: "False"
-      build_admins: "True"
-      build_time_zones: "True"
     restart: unless-stopped
 
   # POI search (Overpass API)
