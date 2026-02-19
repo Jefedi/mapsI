@@ -8,3 +8,10 @@ node_modules/
 # Logs
 *.log
 certs/
+
+# Data (volumes OSM, tuiles, elevation - trop volumineux pour git)
+data/osm/
+data/valhalla/valhalla_tiles/
+data/valhalla/*.pbf
+data/tiles/*.mbtiles
+data/elevation/mapzen/

@@ -1,10 +1,12 @@
-const CACHE_NAME = 'mapsi-v28';
+const CACHE_NAME = 'mapsi-v29';
 const STATIC_ASSETS = [
     './',
     './index.html',
     './style.css',
     './app.js',
     './manifest.json',
+    './lib/leaflet/leaflet.css',
+    './lib/leaflet/leaflet.js',
     './icons/icon-192.png',
     './icons/icon-512.png'
 ];
@@ -27,18 +29,18 @@ self.addEventListener('activate', event => {
     self.clients.claim();
 });
 
-// Fetch - network first for API calls, cache first for static assets
+// Fetch - network first for API calls, cache first for tiles and static assets
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
-    // Network-only for API calls
-    if (url.hostname.includes('nominatim') || url.hostname.includes('router.project-osrm') || url.hostname.includes('routing.openstreetmap.de') || url.hostname.includes('overpass-api') || url.hostname.includes('data.economie.gouv.fr') || url.hostname.includes('opentopodata.org')) {
+    // Network-only for local API proxies
+    if (url.pathname.startsWith('/api/')) {
         event.respondWith(fetch(event.request));
         return;
     }
 
-    // Cache first for tile images (OSM, CARTO, Esri, OpenTopoMap)
-    if (url.hostname.includes('tile.openstreetmap.org') || url.hostname.includes('basemaps.cartocdn.com') || url.hostname.includes('server.arcgisonline.com') || url.hostname.includes('tile.opentopomap.org')) {
+    // Cache first for self-hosted tile images
+    if (url.pathname.startsWith('/tiles/')) {
         event.respondWith(
             caches.match(event.request).then(cached => {
                 if (cached) return cached;

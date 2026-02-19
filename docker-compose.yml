@@ -1,7 +1,89 @@
 services:
+  # Frontend + Reverse Proxy
   mapsi:
     build: .
     container_name: mapsi
     ports:
       - "80:80"
+    depends_on:
+      - nominatim
+      - valhalla
+      - overpass
+      - tileserver
+      - elevation
+      - fuel-proxy
     restart: unless-stopped
+
+  # Geocoding (Nominatim)
+  nominatim:
+    image: mediagis/nominatim:4.4
+    container_name: nominatim
+    environment:
+      PBF_PATH: /data/france-latest.osm.pbf
+      REPLICATION_URL: ""
+    volumes:
+      - ./data/osm:/data:ro
+      - nominatim-db:/var/lib/postgresql/14/main
+    shm_size: 2g
+    restart: unless-stopped
+
+  # Routing (Valhalla - auto, pedestrian, bicycle in one instance)
+  valhalla:
+    image: ghcr.io/gis-ops/valhalla:latest
+    container_name: valhalla
+    volumes:
+      - ./data/valhalla:/custom_files
+    environment:
+      tile_urls: ""
+      use_tiles_ignore_pbf: "True"
+      serve_tiles: "True"
+      build_elevation: "False"
+      build_admins: "True"
+      build_time_zones: "True"
+    restart: unless-stopped
+
+  # POI search (Overpass API)
+  overpass:
+    image: wiktorn/overpass-api
+    container_name: overpass
+    environment:
+      OVERPASS_META: "no"
+      OVERPASS_MODE: init
+      OVERPASS_PLANET_URL: "file:///data/france-latest.osm.pbf"
+      OVERPASS_RULES_LOAD: "10"
+    volumes:
+      - ./data/osm:/data:ro
+      - overpass-db:/db
+    restart: unless-stopped
+
+  # Map tiles (TileServer GL)
+  tileserver:
+    image: maptiler/tileserver-gl:latest
+    container_name: tileserver
+    volumes:
+      - ./data/tiles:/data:ro
+    command: --config /data/config.json --port 8080
+    restart: unless-stopped
+
+  # Elevation data (OpenTopoData)
+  elevation:
+    image: ajnisbet/opentopodata:latest
+    container_name: elevation
+    volumes:
+      - ./data/elevation:/data:ro
+    restart: unless-stopped
+
+  # Fuel price proxy (server-side only external requests)
+  fuel-proxy:
+    build: ./services/fuel-proxy
+    container_name: fuel-proxy
+    volumes:
+      - fuel-data:/data
+    environment:
+      SYNC_INTERVAL_MINUTES: "30"
+    restart: unless-stopped
+
+volumes:
+  nominatim-db:
+  overpass-db:
+  fuel-data:

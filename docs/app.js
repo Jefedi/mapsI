@@ -10,13 +10,10 @@
     }
 
     // ===== CONFIG =====
-    const NOMINATIM_URL = 'https://nominatim.openstreetmap.org';
-    const OSRM_URLS = {
-        driving: 'https://routing.openstreetmap.de/routed-car',
-        walking: 'https://routing.openstreetmap.de/routed-foot',
-        cycling: 'https://routing.openstreetmap.de/routed-bike'
-    };
-    const FUEL_API = 'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records';
+    const NOMINATIM_URL = '/api/nominatim';
+    const VALHALLA_URL = '/api/valhalla';
+    const FUEL_API = '/api/fuel/records';
+    const OVERPASS_URL = '/api/overpass/interpreter';
     const DEFAULT_CENTER = [46.603354, 1.888334];
     const DEFAULT_ZOOM = 6;
     const SEARCH_DEBOUNCE = 400;
@@ -31,11 +28,9 @@
     const POI_RADIUS = 5000;
 
     const MAP_TILES = {
-        standard: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', attr: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>', maxZoom: 19 },
-        clair: { url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr: '&copy; OSM &copy; CARTO', maxZoom: 20 },
-        sombre: { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr: '&copy; OSM &copy; CARTO', maxZoom: 20 },
-        satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr: '&copy; Esri', maxZoom: 18 },
-        topo: { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attr: '&copy; OpenTopoMap', maxZoom: 17 }
+        standard: { url: '/tiles/styles/osm-bright/{z}/{x}/{y}.png', attr: '&copy; OpenMapTiles &copy; OSM', maxZoom: 19 },
+        clair: { url: '/tiles/styles/positron/{z}/{x}/{y}.png', attr: '&copy; OpenMapTiles &copy; OSM', maxZoom: 20 },
+        sombre: { url: '/tiles/styles/dark-matter/{z}/{x}/{y}.png', attr: '&copy; OpenMapTiles &copy; OSM', maxZoom: 20 }
     };
 
     // ===== SETTINGS =====
@@ -610,7 +605,7 @@
         const query = POI_QUERIES[category];
         const overpassData = `[out:json][timeout:10];node${query}(around:${POI_RADIUS},${userPosition.lat},${userPosition.lng});out body 10;`;
         try {
-            const resp = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassData)}`);
+            const resp = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(overpassData)}`);
             const data = await resp.json();
             displayPOIResults(data.elements, category);
         } catch (err) {
@@ -625,9 +620,7 @@
             const fuelType = settings.fuelType;
             const lat = userPosition.lat;
             const lng = userPosition.lng;
-            const dist = POI_RADIUS / 1000;
-            const where = `within_distance(geom, geom'POINT(${lng} ${lat})', ${POI_RADIUS}m)`;
-            const url = `${FUEL_API}?limit=15&where=${encodeURIComponent(where)}&select=adresse,ville,cp,geom,prix,horaires`;
+            const url = `${FUEL_API}?limit=15&lat=${lat}&lon=${lng}&radius=${POI_RADIUS}`;
             const resp = await fetch(url);
             const data = await resp.json();
             displayFuelResults(data.results || [], fuelType);
@@ -768,8 +761,7 @@
             const fuelType = settings.fuelType;
             const lat = userPosition.lat;
             const lng = userPosition.lng;
-            const where = `within_distance(geom, geom'POINT(${lng} ${lat})', ${POI_RADIUS}m)`;
-            const url = `${FUEL_API}?limit=15&where=${encodeURIComponent(where)}&select=adresse,ville,cp,geom,prix,horaires`;
+            const url = `${FUEL_API}?limit=15&lat=${lat}&lon=${lng}&radius=${POI_RADIUS}`;
             const resp = await fetch(url);
             const data = await resp.json();
             const stations = data.results || [];
@@ -817,7 +809,7 @@
         if (!overpassData) return;
 
         try {
-            const resp = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassData)}`);
+            const resp = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(overpassData)}`);
             const data = await resp.json();
             const elements = data.elements || [];
 
@@ -987,7 +979,7 @@
         speedLimitTimeout = setTimeout(() => { speedLimitTimeout = null; }, 10000); // Query every 10s max
         try {
             const query = `[out:json][timeout:5];way(around:30,${lat},${lng})[maxspeed];out tags 1;`;
-            const resp = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+            const resp = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`);
             const data = await resp.json();
             if (data.elements && data.elements.length > 0) {
                 const maxspeed = data.elements[0].tags?.maxspeed;
@@ -1148,24 +1140,22 @@
     async function calculateRoute() {
         if (!userPosition || !destination) return;
         showLoading();
-        const osrmBase = OSRM_URLS[transportMode] || OSRM_URLS.driving;
-        const profile = transportMode === 'walking' ? 'foot' : transportMode === 'cycling' ? 'bike' : 'car';
-        // Build coordinates string with waypoints
-        let coords = `${userPosition.lng},${userPosition.lat}`;
-        waypoints.forEach(wp => { coords += `;${wp.lon},${wp.lat}`; });
-        coords += `;${destination.lon},${destination.lat}`;
-        // Build exclude parameter for avoid highways/tolls
-        const excludes = [];
-        if (settings.avoidMotorway) excludes.push('motorway');
-        if (settings.avoidToll) excludes.push('toll');
-        if (settings.avoidFerry) excludes.push('ferry');
-        const excludeParam = excludes.length > 0 ? `&exclude=${excludes.join(',')}` : '';
-        const url = `${osrmBase}/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=true&alternatives=${waypoints.length === 0 ? 'true' : 'false'}${excludeParam}`;
+        const costing = transportMode === 'walking' ? 'pedestrian' : transportMode === 'cycling' ? 'bicycle' : 'auto';
+        const locations = [{ lat: userPosition.lat, lon: userPosition.lng }];
+        waypoints.forEach(wp => locations.push({ lat: wp.lat, lon: wp.lon }));
+        locations.push({ lat: destination.lat, lon: destination.lon });
+        const body = { locations, costing, alternates: waypoints.length === 0 ? 2 : 0, units: 'km', language: 'fr-FR' };
+        if (settings.avoidMotorway || settings.avoidToll || settings.avoidFerry) {
+            body.costing_options = { [costing]: {} };
+            if (settings.avoidMotorway) body.costing_options[costing].use_highways = 0;
+            if (settings.avoidToll) body.costing_options[costing].use_tolls = 0;
+            if (settings.avoidFerry) body.costing_options[costing].use_ferry = 0;
+        }
         try {
-            const resp = await fetch(url);
+            const resp = await fetch(`${VALHALLA_URL}/route`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
             const data = await resp.json(); hideLoading();
-            if (data.code !== 'Ok' || !data.routes.length) { alert('Impossible de calculer le trajet'); return; }
-            allRoutes = data.routes; selectedRouteIndex = 0; selectRoute(0);
+            if (data.error_code || data.status_code) { alert('Impossible de calculer le trajet'); return; }
+            allRoutes = normalizeValhallaResponse(data); selectedRouteIndex = 0; selectRoute(0);
             if (!isNavigating) {
                 const coords2 = allRoutes[0].geometry.coordinates.map(c => [c[1], c[0]]);
                 displayRouteAlternatives();
@@ -1406,7 +1396,7 @@
 
         const locations = sampled.map(c => `${c[1]},${c[0]}`).join('|');
         try {
-            const resp = await fetch(`https://api.opentopodata.org/v1/mapzen?locations=${locations}`);
+            const resp = await fetch(`/api/elevation/v1/mapzen?locations=${locations}`);
             const data = await resp.json();
             if (data.status === 'OK' && data.results) {
                 const elevations = data.results.map(r => r.elevation ?? 0);
@@ -1497,7 +1487,7 @@
         showLoading();
         const query = `[out:json][timeout:10];node[amenity=parking](around:1500,${destination.lat},${destination.lon});out body 15;`;
         try {
-            const resp = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+            const resp = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`);
             const data = await resp.json();
             hideLoading();
             if (!data.elements || data.elements.length === 0) {
@@ -1531,6 +1521,74 @@
             hideLoading();
             alert('Erreur lors de la recherche de parkings');
         }
+    }
+
+    // ===== VALHALLA RESPONSE NORMALIZATION =====
+    function decodePolyline(encoded, precision) {
+        precision = precision || 6;
+        const factor = Math.pow(10, precision);
+        const coords = [];
+        let lat = 0, lng = 0, index = 0;
+        while (index < encoded.length) {
+            let b, shift = 0, result = 0;
+            do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+            lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+            shift = 0; result = 0;
+            do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+            lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+            coords.push([lng / factor, lat / factor]);
+        }
+        return coords;
+    }
+
+    const VALHALLA_MANEUVER_MAP = {
+        0: { type: 'turn', modifier: 'straight' },
+        1: { type: 'depart', modifier: '' }, 2: { type: 'depart', modifier: 'right' }, 3: { type: 'depart', modifier: 'left' },
+        4: { type: 'arrive', modifier: '' }, 5: { type: 'arrive', modifier: 'right' }, 6: { type: 'arrive', modifier: 'left' },
+        7: { type: 'continue', modifier: '' }, 8: { type: 'continue', modifier: '' },
+        9: { type: 'turn', modifier: 'slight right' }, 10: { type: 'turn', modifier: 'right' }, 11: { type: 'turn', modifier: 'sharp right' },
+        12: { type: 'turn', modifier: 'uturn' }, 13: { type: 'turn', modifier: 'uturn' },
+        14: { type: 'turn', modifier: 'sharp left' }, 15: { type: 'turn', modifier: 'left' }, 16: { type: 'turn', modifier: 'slight left' },
+        17: { type: 'continue', modifier: 'straight' }, 18: { type: 'fork', modifier: 'right' }, 19: { type: 'fork', modifier: 'left' },
+        20: { type: 'fork', modifier: 'right' }, 21: { type: 'fork', modifier: 'left' },
+        22: { type: 'continue', modifier: '' }, 23: { type: 'fork', modifier: 'right' }, 24: { type: 'fork', modifier: 'left' },
+        25: { type: 'merge', modifier: '' }, 26: { type: 'roundabout', modifier: '' }, 27: { type: 'roundabout', modifier: '' },
+        28: { type: 'notification', modifier: '' }, 29: { type: 'notification', modifier: '' },
+        37: { type: 'merge', modifier: 'right' }, 38: { type: 'merge', modifier: 'left' }
+    };
+
+    function normalizeValhallaTrip(trip) {
+        const allCoords = [];
+        const legs = trip.legs.map(leg => {
+            const coords = decodePolyline(leg.shape);
+            const steps = leg.maneuvers.map(m => {
+                const mInfo = VALHALLA_MANEUVER_MAP[m.type] || { type: 'turn', modifier: 'straight' };
+                const loc = coords[m.begin_shape_index] || coords[0];
+                return {
+                    maneuver: { type: mInfo.type, modifier: mInfo.modifier, location: loc },
+                    name: (m.street_names && m.street_names[0]) || '',
+                    ref: (m.begin_street_names && m.begin_street_names[0]) || '',
+                    distance: m.length * 1000,
+                    duration: m.time
+                };
+            });
+            allCoords.push(...coords);
+            return { steps, distance: leg.summary.length * 1000, duration: leg.summary.time };
+        });
+        return {
+            geometry: { type: 'LineString', coordinates: allCoords },
+            legs,
+            distance: trip.summary.length * 1000,
+            duration: trip.summary.time
+        };
+    }
+
+    function normalizeValhallaResponse(data) {
+        const routes = [normalizeValhallaTrip(data.trip)];
+        if (data.alternates) {
+            data.alternates.forEach(alt => routes.push(normalizeValhallaTrip(alt.trip)));
+        }
+        return routes;
     }
 
     // ===== HELPERS =====
