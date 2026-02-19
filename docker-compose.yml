@@ -18,6 +18,10 @@ services:
         condition: service_started
       fuel-proxy:
         condition: service_started
+      weather-proxy:
+        condition: service_started
+      sync:
+        condition: service_started
     restart: unless-stopped
     mem_limit: 128m
     cpus: 0.5
@@ -134,7 +138,41 @@ services:
       retries: 3
       start_period: 15s
 
+  # Weather proxy (Open-Meteo - server-side caching proxy)
+  weather-proxy:
+    build: ./services/weather-proxy
+    container_name: weather-proxy
+    volumes:
+      - weather-data:/data
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Sync service (favorites/settings between devices)
+  sync:
+    build: ./services/sync
+    container_name: sync
+    volumes:
+      - sync-data:/data
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 volumes:
   nominatim-db:
   overpass-db:
   fuel-data:
+  weather-data:
+  sync-data:

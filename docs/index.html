@@ -15,6 +15,8 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icons/icon-180.png">
     <link rel="stylesheet" href="lib/leaflet/leaflet.css">
+    <link rel="stylesheet" href="lib/markercluster/MarkerCluster.css">
+    <link rel="stylesheet" href="lib/markercluster/MarkerCluster.Default.css">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -31,6 +33,13 @@
             <span id="speed-unit">km/h</span>
         </div>
 
+        <!-- Weather Widget -->
+        <div id="weather-widget" class="hidden">
+            <div id="weather-icon"></div>
+            <div id="weather-temp"></div>
+            <div id="weather-wind"></div>
+        </div>
+
         <!-- Locate Me Button -->
         <button id="locate-btn" aria-label="Ma position">
             <svg viewBox="0 0 24 24" width="24" height="24">
@@ -45,6 +54,15 @@
             <svg viewBox="0 0 24 24" width="24" height="24">
                 <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="none" stroke="currentColor" stroke-width="2"/>
                 <circle cx="12" cy="9" r="2.5" fill="currentColor"/>
+            </svg>
+        </button>
+
+        <!-- Isochrone Button -->
+        <button id="isochrone-btn" aria-label="Isochrones">
+            <svg viewBox="0 0 24 24" width="24" height="24">
+                <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                <circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3,3"/>
+                <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2,4"/>
             </svg>
         </button>
     </div>
@@ -73,6 +91,21 @@
                     <path d="M12 6v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.3"/>
                 </svg>
                 <p>Aucun historique</p>
+            </div>
+        </div>
+
+        <!-- Trips Section -->
+        <div id="trips-container">
+            <div id="trips-header">
+                <span>Mes trajets</span>
+                <button id="trips-clear-btn">Effacer</button>
+            </div>
+            <div id="trips-list"></div>
+            <div id="trips-empty">
+                <svg viewBox="0 0 24 24" width="48" height="48">
+                    <path d="M3 12h18M13 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.3"/>
+                </svg>
+                <p>Aucun trajet enregistre</p>
             </div>
         </div>
     </div>
@@ -161,6 +194,80 @@
             </div>
         </div>
         <div class="settings-group">
+            <div class="settings-title">Carte intelligente</div>
+            <div class="setting-item">
+                <span>Carte nuit auto</span>
+                <label class="toggle">
+                    <input type="checkbox" id="auto-night-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="setting-item">
+                <span>Alertes radars</span>
+                <label class="toggle">
+                    <input type="checkbox" id="radar-alerts-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+        <div class="settings-group">
+            <div class="settings-title">Profil vehicule</div>
+            <div class="setting-item">
+                <span>Hauteur (m)</span>
+                <input type="number" id="vehicle-height" class="setting-number-input" placeholder="--" step="0.1" min="0" max="5">
+            </div>
+            <div class="setting-item">
+                <span>Poids (t)</span>
+                <input type="number" id="vehicle-weight" class="setting-number-input" placeholder="--" step="0.1" min="0" max="50">
+            </div>
+            <div class="setting-item">
+                <span>Largeur (m)</span>
+                <input type="number" id="vehicle-width" class="setting-number-input" placeholder="--" step="0.1" min="0" max="4">
+            </div>
+            <div class="setting-item">
+                <span>Longueur (m)</span>
+                <input type="number" id="vehicle-length" class="setting-number-input" placeholder="--" step="0.1" min="0" max="25">
+            </div>
+        </div>
+        <div class="settings-group">
+            <div class="settings-title">Tableau de bord</div>
+            <div class="setting-item">
+                <span>Altitude</span>
+                <label class="toggle">
+                    <input type="checkbox" id="dash-altitude-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="setting-item">
+                <span>Cap / Boussole</span>
+                <label class="toggle">
+                    <input type="checkbox" id="dash-heading-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+        <div class="settings-group">
+            <div class="settings-title">Hors-ligne</div>
+            <div class="setting-item">
+                <span>Zone actuelle</span>
+                <button id="offline-download-btn" class="setting-action-btn">Telecharger</button>
+            </div>
+            <div id="offline-progress" class="hidden">
+                <div id="offline-progress-bar"><div id="offline-progress-fill"></div></div>
+                <span id="offline-progress-text">0%</span>
+            </div>
+        </div>
+        <div class="settings-group">
+            <div class="settings-title">Synchronisation</div>
+            <div class="setting-item">
+                <span>Sync entre appareils</span>
+                <label class="toggle">
+                    <input type="checkbox" id="sync-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+        <div class="settings-group">
             <div class="settings-title">A propos</div>
             <div class="setting-info">
                 <span>MapsI v3.2</span>
@@ -196,6 +303,10 @@
             <button class="quick-poi-btn" data-qpoi="toilets">
                 <svg viewBox="0 0 24 24" width="18" height="18"><path d="M8 2v4M16 2v4M5 6h6v3a3 3 0 01-3 3H8a3 3 0 01-3-3V6zM13 6h6l-1 6h-4l-1-6zM8 12v10M16 12v10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 <span>Toilettes</span>
+            </button>
+            <button class="quick-poi-btn" data-qpoi="charging">
+                <svg viewBox="0 0 24 24" width="18" height="18"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span>Bornes</span>
             </button>
         </div>
         <div id="search-results" class="hidden"></div>
@@ -275,6 +386,7 @@
         <div id="waypoints-section">
             <div id="waypoints-list"></div>
             <button id="add-waypoint-btn">+ Ajouter une etape</button>
+            <button id="optimize-waypoints-btn" class="hidden">Optimiser l'ordre</button>
         </div>
         <div id="nav-instruction">
             <span id="nav-step-text"></span>
@@ -292,7 +404,12 @@
                 <svg viewBox="0 0 24 24" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 17V7h4a3 3 0 010 6H9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 Parking
             </button>
+            <button id="nav-gpx-btn">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M14 2v6h6M9 15l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                GPX
+            </button>
             <button id="nav-share-btn">Partager</button>
+            <button id="nav-simulate-btn">Simuler</button>
             <button id="nav-start-btn">Demarrer</button>
         </div>
     </div>
@@ -328,6 +445,17 @@
                 <span class="nav-bottom-label">Distance</span>
             </div>
         </div>
+        <!-- Navigation Dashboard -->
+        <div id="nav-dashboard" class="hidden">
+            <div class="dash-widget" data-widget="altitude">
+                <span class="dash-value" id="dash-altitude">--</span>
+                <span class="dash-label">Alt.</span>
+            </div>
+            <div class="dash-widget" data-widget="heading">
+                <span class="dash-value" id="dash-heading">--</span>
+                <span class="dash-label">Cap</span>
+            </div>
+        </div>
     </div>
 
     <!-- POI Panel -->
@@ -352,6 +480,10 @@
             <button class="poi-cat-btn" data-cat="pharmacy">
                 <svg viewBox="0 0 24 24" width="20" height="20"><path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
                 Pharmacie
+            </button>
+            <button class="poi-cat-btn" data-cat="charging">
+                <svg viewBox="0 0 24 24" width="20" height="20"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Bornes EV
             </button>
         </div>
         <div id="poi-results"></div>
@@ -405,12 +537,82 @@
         </div>
     </div>
 
+    <!-- Isochrone Modal -->
+    <div id="isochrone-modal" class="hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>Isochrones</span>
+                <button id="isochrone-modal-close" aria-label="Fermer">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom:12px;color:var(--text-secondary);font-size:14px">Zone accessible depuis votre position</p>
+                <div class="isochrone-options">
+                    <button class="iso-time-btn active" data-minutes="15">15 min</button>
+                    <button class="iso-time-btn" data-minutes="30">30 min</button>
+                    <button class="iso-time-btn" data-minutes="60">60 min</button>
+                </div>
+                <div class="isochrone-mode-options">
+                    <button class="iso-mode-btn active" data-mode="auto">Auto</button>
+                    <button class="iso-mode-btn" data-mode="pedestrian">Marche</button>
+                    <button class="iso-mode-btn" data-mode="bicycle">Velo</button>
+                </div>
+                <button id="isochrone-calc-btn">Calculer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shortcuts Modal -->
+    <div id="shortcuts-modal" class="hidden">
+        <div class="modal-content" style="max-width:400px">
+            <div class="modal-header">
+                <span>Raccourcis clavier</span>
+                <button id="shortcuts-modal-close" aria-label="Fermer">&times;</button>
+            </div>
+            <div class="modal-body shortcuts-list">
+                <div class="shortcut-row"><kbd>/</kbd> <span>Rechercher</span></div>
+                <div class="shortcut-row"><kbd>Esc</kbd> <span>Fermer</span></div>
+                <div class="shortcut-row"><kbd>L</kbd> <span>Ma position</span></div>
+                <div class="shortcut-row"><kbd>P</kbd> <span>Points d'interet</span></div>
+                <div class="shortcut-row"><kbd>I</kbd> <span>Isochrones</span></div>
+                <div class="shortcut-row"><kbd>1</kbd> <span>Vue carte</span></div>
+                <div class="shortcut-row"><kbd>2</kbd> <span>Vue recherche</span></div>
+                <div class="shortcut-row"><kbd>3</kbd> <span>Vue reglages</span></div>
+                <div class="shortcut-row"><kbd>Space</kbd> <span>Demarrer/Arreter nav</span></div>
+                <div class="shortcut-row"><kbd>?</kbd> <span>Afficher raccourcis</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GPX Modal -->
+    <div id="gpx-modal" class="hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>GPX</span>
+                <button id="gpx-modal-close" aria-label="Fermer">&times;</button>
+            </div>
+            <div class="modal-body">
+                <button id="gpx-export-btn" class="share-option">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    Exporter l'itineraire
+                </button>
+                <button id="gpx-import-btn" class="share-option">
+                    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    Importer un fichier GPX
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GPX Import Hidden Input -->
+    <input type="file" id="gpx-import-input" accept=".gpx" class="hidden" aria-hidden="true">
+
     <!-- Loading -->
     <div id="loading" class="hidden">
         <div class="spinner"></div>
     </div>
 
     <script src="lib/leaflet/leaflet.js"></script>
+    <script src="lib/markercluster/leaflet.markercluster.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

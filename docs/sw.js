@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mapsi-v30';
+const CACHE_NAME = 'mapsi-v31';
 const STATIC_ASSETS = [
     './',
     './index.html',
@@ -7,6 +7,9 @@ const STATIC_ASSETS = [
     './manifest.json',
     './lib/leaflet/leaflet.css',
     './lib/leaflet/leaflet.js',
+    './lib/markercluster/leaflet.markercluster.js',
+    './lib/markercluster/MarkerCluster.css',
+    './lib/markercluster/MarkerCluster.Default.css',
     './icons/icon-192.png',
     './icons/icon-512.png',
     './offline.html'
@@ -76,4 +79,54 @@ self.addEventListener('fetch', event => {
             });
         })
     );
+});
+
+// Message handler for offline tile pre-caching
+self.addEventListener('message', event => {
+    if (event.data && event.data.type === 'CACHE_TILES') {
+        const { tiles } = event.data;
+        if (!tiles || !Array.isArray(tiles)) return;
+
+        const total = tiles.length;
+        let done = 0;
+        let errors = 0;
+
+        const cacheTile = async (tileUrl) => {
+            try {
+                const response = await fetch(tileUrl);
+                if (response.ok) {
+                    const cache = await caches.open(CACHE_NAME);
+                    await cache.put(tileUrl, response);
+                }
+            } catch (e) {
+                errors++;
+            }
+            done++;
+            // Report progress every 10 tiles
+            if (done % 10 === 0 || done === total) {
+                self.clients.matchAll().then(clients => {
+                    clients.forEach(client => {
+                        client.postMessage({
+                            type: 'CACHE_TILES_PROGRESS',
+                            done,
+                            total,
+                            errors
+                        });
+                    });
+                });
+            }
+        };
+
+        // Process tiles in batches of 6 to avoid overwhelming the server
+        const processBatch = async (startIndex) => {
+            const batch = tiles.slice(startIndex, startIndex + 6);
+            if (batch.length === 0) return;
+            await Promise.all(batch.map(url => cacheTile(url)));
+            if (startIndex + 6 < tiles.length) {
+                await processBatch(startIndex + 6);
+            }
+        };
+
+        processBatch(0);
+    }
 });
