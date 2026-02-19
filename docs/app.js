@@ -89,6 +89,7 @@
     const $searchInput = $('search-input');
     const $searchClear = $('search-clear');
     const $searchResults = $('search-results');
+    const $searchContainer = $('search-container');
     const $locateBtn = $('locate-btn');
     const $poiBtn = $('poi-btn');
     const $poiPanel = $('poi-panel');
@@ -293,6 +294,7 @@
         $mapView.classList.toggle('hidden', view !== 'map');
         $searchView.classList.toggle('hidden', view !== 'search');
         $settingsView.classList.toggle('hidden', view !== 'settings');
+        $searchContainer.classList.toggle('hidden', view === 'settings');
         if (view === 'map') setTimeout(() => map.invalidateSize(), 100);
         else if (view === 'search') { renderHistory(); renderFavorites(); }
     }
