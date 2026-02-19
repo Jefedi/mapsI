@@ -43,7 +43,8 @@
         autoReroute: true,
         showSpeed: true,
         avoidMotorway: false,
-        avoidToll: false
+        avoidToll: false,
+        avoidFerry: false
     };
 
     // ===== STATE =====
@@ -108,6 +109,7 @@
     const $activeNavStreet = $('active-nav-street');
     const $activeNavIcon = $('active-nav-icon');
     const $activeNavStop = $('active-nav-stop');
+    const $activeNavBottom = $('active-nav-bottom');
     const $remainingDistance = $('remaining-distance');
     const $remainingTime = $('remaining-time');
     const $etaTime = $('eta-time');
@@ -140,6 +142,7 @@
     const $addWaypointBtn = $('add-waypoint-btn');
     const $avoidMotorwayToggle = $('avoid-motorway-toggle');
     const $avoidTollToggle = $('avoid-toll-toggle');
+    const $avoidFerryToggle = $('avoid-ferry-toggle');
     const $elevationProfile = $('elevation-profile');
     const $elevationCanvas = $('elevation-canvas');
     const $elevationInfo = $('elevation-info');
@@ -200,6 +203,7 @@
         $showSpeedToggle.checked = settings.showSpeed;
         $avoidMotorwayToggle.checked = settings.avoidMotorway;
         $avoidTollToggle.checked = settings.avoidToll;
+        $avoidFerryToggle.checked = settings.avoidFerry;
 
         const tilePane = document.querySelector('.leaflet-tile-pane');
         if (tilePane) {
@@ -253,6 +257,12 @@
 
         $avoidTollToggle.addEventListener('change', () => {
             settings.avoidToll = $avoidTollToggle.checked;
+            saveSettings();
+            if (destination && userPosition) calculateRoute();
+        });
+
+        $avoidFerryToggle.addEventListener('change', () => {
+            settings.avoidFerry = $avoidFerryToggle.checked;
             saveSettings();
             if (destination && userPosition) calculateRoute();
         });
@@ -744,7 +754,7 @@
     function updateUserPosition(pos) {
         const lat = pos.coords.latitude, lng = pos.coords.longitude, speed = pos.coords.speed;
         userPosition = { lat, lng, accuracy: pos.coords.accuracy, heading: pos.coords.heading, speed };
-        const icon = isNavigating ? createNavIcon() : createDotIcon();
+        const icon = isNavigating ? createNavIcon(pos.coords.heading) : createDotIcon();
         if (!userMarker) userMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(map);
         else { userMarker.setLatLng([lat, lng]); userMarker.setIcon(icon); }
         updateSpeedDisplay(speed);
@@ -795,8 +805,34 @@
         return L.divIcon({ className: '', html: '<div class="user-location-pulse"></div><div class="user-location-dot"></div>', iconSize: [20, 20], iconAnchor: [10, 10] });
     }
 
-    function createNavIcon() {
-        return L.divIcon({ className: 'user-nav-marker', html: '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="20" fill="#0a84ff" stroke="white" stroke-width="4"/><polygon points="24,8 32,28 24,24 16,28" fill="white"/></svg>', iconSize: [48, 48], iconAnchor: [24, 24] });
+    function createNavIcon(heading) {
+        const rot = (heading != null && !isNaN(heading)) ? heading : 0;
+        return L.divIcon({ className: 'user-nav-marker', html: `<svg viewBox="0 0 48 48" style="transform:rotate(${rot}deg);transition:transform 0.5s ease-out"><path d="M24 4L40 36L24 26L8 36Z" fill="#0a84ff" stroke="white" stroke-width="3" stroke-linejoin="round"/></svg>`, iconSize: [48, 48], iconAnchor: [24, 24] });
+    }
+
+    function updateMapBearing(heading) {
+        if (!isNavigating || heading == null || isNaN(heading)) return;
+        const mapEl = map.getContainer();
+        mapEl.style.transform = `rotate(${-heading}deg)`;
+        mapEl.style.transformOrigin = 'center center';
+        // Counter-rotate controls and markers so they stay upright
+        const controls = mapEl.querySelector('.leaflet-control-container');
+        if (controls) controls.style.transform = `rotate(${heading}deg)`;
+        // Counter-rotate all markers so text/icons stay readable
+        mapEl.querySelectorAll('.leaflet-marker-icon').forEach(m => {
+            m.style.transform = (m.style.transform || '').replace(/rotate\([^)]*\)\s*/g, '') + ` rotate(${heading}deg)`;
+        });
+    }
+
+    function resetMapBearing() {
+        const mapEl = map.getContainer();
+        mapEl.style.transform = '';
+        mapEl.style.transformOrigin = '';
+        const controls = mapEl.querySelector('.leaflet-control-container');
+        if (controls) controls.style.transform = '';
+        mapEl.querySelectorAll('.leaflet-marker-icon').forEach(m => {
+            m.style.transform = (m.style.transform || '').replace(/rotate\([^)]*\)\s*/g, '');
+        });
     }
 
     // ===== MAP EVENTS =====
@@ -895,7 +931,7 @@
     function setDestination(lat, lon, name) {
         destination = { lat, lon, name };
         if (destMarker) map.removeLayer(destMarker);
-        destMarker = L.marker([lat, lon], { icon: L.divIcon({ className: 'destination-marker', html: '<svg viewBox="0 0 24 36"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 24 12 24s12-15 12-24C24 5.4 18.6 0 12 0z" fill="#ff453a"/><circle cx="12" cy="12" r="5" fill="white"/></svg>', iconSize: [32, 40], iconAnchor: [16, 40] }) }).addTo(map);
+        destMarker = L.marker([lat, lon], { icon: L.divIcon({ className: 'destination-marker', html: '<svg viewBox="0 0 28 40"><rect x="2" y="0" width="2.5" height="40" rx="1.25" fill="#888"/><rect x="4.5" y="2" width="5" height="4" fill="#333"/><rect x="9.5" y="2" width="5" height="4" fill="#fff"/><rect x="14.5" y="2" width="5" height="4" fill="#333"/><rect x="19.5" y="2" width="5" height="4" fill="#fff" rx="0 2 0 0"/><rect x="4.5" y="6" width="5" height="4" fill="#fff"/><rect x="9.5" y="6" width="5" height="4" fill="#333"/><rect x="14.5" y="6" width="5" height="4" fill="#fff"/><rect x="19.5" y="6" width="5" height="4" fill="#333"/><rect x="4.5" y="10" width="5" height="4" fill="#333"/><rect x="9.5" y="10" width="5" height="4" fill="#fff"/><rect x="14.5" y="10" width="5" height="4" fill="#333"/><rect x="19.5" y="10" width="5" height="4" fill="#fff"/><rect x="4.5" y="14" width="5" height="4" fill="#fff"/><rect x="9.5" y="14" width="5" height="4" fill="#333"/><rect x="14.5" y="14" width="5" height="4" fill="#fff"/><rect x="19.5" y="14" width="5" height="4" fill="#333" rx="0 0 2 0"/></svg>', iconSize: [28, 40], iconAnchor: [3, 40] }) }).addTo(map);
         map.flyTo([lat, lon], 15, { duration: 0.8 });
         if (userPosition) calculateRoute();
         else navigator.geolocation?.getCurrentPosition(pos => { updateUserPosition(pos); calculateRoute(); }, () => alert('Activez la localisation'), { enableHighAccuracy: true, timeout: 5000 });
@@ -914,6 +950,7 @@
         const excludes = [];
         if (settings.avoidMotorway) excludes.push('motorway');
         if (settings.avoidToll) excludes.push('toll');
+        if (settings.avoidFerry) excludes.push('ferry');
         const excludeParam = excludes.length > 0 ? `&exclude=${excludes.join(',')}` : '';
         const url = `${OSRM_URL}/route/v1/${profile}/${coords}?overview=full&geometries=geojson&steps=true&alternatives=${waypoints.length === 0 ? 'true' : 'false'}${excludeParam}`;
         try {
@@ -921,10 +958,12 @@
             const data = await resp.json(); hideLoading();
             if (data.code !== 'Ok' || !data.routes.length) { alert('Impossible de calculer le trajet'); return; }
             allRoutes = data.routes; selectedRouteIndex = 0; selectRoute(0);
-            const coords2 = allRoutes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-            map.fitBounds(L.latLngBounds(coords2), { padding: [60, 60] });
-            displayRouteAlternatives();
-            showNavPanel();
+            if (!isNavigating) {
+                const coords2 = allRoutes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                map.fitBounds(L.latLngBounds(coords2), { padding: [60, 60] });
+                displayRouteAlternatives();
+                showNavPanel();
+            }
             fetchElevationProfile(allRoutes[0].geometry.coordinates);
         } catch (err) { hideLoading(); alert('Erreur de calcul du trajet'); }
     }
@@ -951,14 +990,39 @@
 
     function clearAltRouteLayers() { altRouteLayers.forEach(l => map.removeLayer(l)); altRouteLayers = []; }
 
+    function getRouteInfo(route) {
+        const refs = new Set();
+        let hasToll = false;
+        route.legs.forEach(leg => {
+            leg.steps.forEach(step => {
+                if (step.ref) {
+                    step.ref.split(';').forEach(r => {
+                        const ref = r.trim();
+                        if (ref) refs.add(ref);
+                        if (/^A\d/.test(ref)) hasToll = true;
+                    });
+                }
+            });
+        });
+        const sorted = [...refs].sort((a, b) => {
+            const o = r => /^A/.test(r) ? 0 : /^N/.test(r) ? 1 : /^D/.test(r) ? 2 : 3;
+            return o(a) - o(b);
+        });
+        return { via: sorted.length > 0 ? 'Via ' + sorted.slice(0, 3).join(', ') : '', hasToll };
+    }
+
     function displayRouteAlternatives() {
         if (allRoutes.length <= 1) { $routeAlternatives.classList.add('hidden'); return; }
         $routeAlternatives.classList.remove('hidden');
-        $routeAlternatives.innerHTML = allRoutes.map((route, i) => `
-            <div class="route-option ${i === selectedRouteIndex ? 'active' : ''}" data-route="${i}">
+        $routeAlternatives.innerHTML = allRoutes.map((route, i) => {
+            const info = getRouteInfo(route);
+            return `<div class="route-option ${i === selectedRouteIndex ? 'active' : ''}" data-route="${i}">
                 <span class="route-time">${formatDuration(route.duration)}</span>
                 <span class="route-dist">${formatDistance(route.distance)}</span>
-            </div>`).join('');
+                ${info.via ? `<span class="route-via">${escapeHtml(info.via)}</span>` : ''}
+                ${info.hasToll ? '<span class="route-toll">Peage</span>' : ''}
+            </div>`;
+        }).join('');
         $routeAlternatives.querySelectorAll('.route-option').forEach(el => {
             el.addEventListener('click', () => { selectRoute(parseInt(el.dataset.route)); displayRouteAlternatives(); showNavPanel(); });
         });
@@ -973,6 +1037,7 @@
     }
 
     function showNavPanel() {
+        if (isNavigating) return;
         $navDistance.textContent = formatDistance(routeData.distance);
         $navDuration.textContent = formatDuration(routeData.duration);
         $navEta.textContent = 'Arr. ' + calculateETA(routeData.duration);
@@ -991,11 +1056,11 @@
     function startNavigation() {
         isNavigating = true; currentStepIndex = 0; lastSpokenStep = -1;
         $navPanel.classList.add('hidden'); $transportModes.classList.add('hidden'); $routeAlternatives.classList.add('hidden');
-        $activeNav.classList.remove('hidden'); $locateBtn.classList.add('nav-hidden');
+        $activeNav.classList.remove('hidden'); $activeNavBottom.classList.remove('hidden'); $locateBtn.classList.add('nav-hidden');
         document.body.classList.add('navigating');
         clearAltRouteLayers();
         startWatchingPosition(); updateNavigationDisplay();
-        if (userPosition) { map.setView([userPosition.lat, userPosition.lng], NAV_ZOOM); if (userMarker) userMarker.setIcon(createNavIcon()); }
+        if (userPosition) { map.setView([userPosition.lat, userPosition.lng], NAV_ZOOM); if (userMarker) userMarker.setIcon(createNavIcon(userPosition.heading)); updateMapBearing(userPosition.heading); }
         if (settings.showSpeed) $speedDisplay.classList.remove('hidden');
         if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(() => {});
         speakStep(0);
@@ -1003,7 +1068,8 @@
 
     function stopNavigation() {
         isNavigating = false;
-        $activeNav.classList.add('hidden'); $speedDisplay.classList.add('hidden'); $speedLimit.classList.add('hidden');
+        resetMapBearing();
+        $activeNav.classList.add('hidden'); $activeNavBottom.classList.add('hidden'); $speedDisplay.classList.add('hidden'); $speedLimit.classList.add('hidden');
         $elevationProfile.classList.add('hidden');
         $locateBtn.classList.remove('nav-hidden');
         document.body.classList.remove('navigating');
@@ -1034,6 +1100,7 @@
         if (nextStep) $activeNavDistance.textContent = formatDistance(haversine(userLat, userLng, nextStep.maneuver.location[1], nextStep.maneuver.location[0]));
         updateRemainingInfo(userLat, userLng);
         map.setView([userLat, userLng], NAV_ZOOM, { animate: true, duration: 0.5 });
+        updateMapBearing(pos.coords.heading);
         if (settings.autoReroute) checkOffRoute(userLat, userLng);
         // 7. Speed limit
         fetchSpeedLimit(userLat, userLng);
@@ -1277,6 +1344,7 @@
     $navClose.addEventListener('click', () => {
         $navPanel.classList.add('hidden'); $transportModes.classList.add('hidden'); $routeAlternatives.classList.add('hidden');
         $elevationProfile.classList.add('hidden');
+        if (isNavigating) return;
         if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
         if (routeShadowLayer) { map.removeLayer(routeShadowLayer); routeShadowLayer = null; }
         if (destMarker) { map.removeLayer(destMarker); destMarker = null; }

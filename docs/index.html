@@ -138,6 +138,13 @@
                     <span class="slider"></span>
                 </label>
             </div>
+            <div class="setting-item">
+                <span>Eviter ferries</span>
+                <label class="toggle">
+                    <input type="checkbox" id="avoid-ferry-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
         </div>
         <div class="settings-group">
             <div class="settings-title">Carburant</div>
@@ -260,7 +267,7 @@
         </div>
     </div>
 
-    <!-- Active Navigation -->
+    <!-- Active Navigation - Top Instruction -->
     <div id="active-nav" class="hidden">
         <div id="active-nav-instruction">
             <div id="active-nav-icon"></div>
@@ -269,14 +276,28 @@
                 <div id="active-nav-street"></div>
             </div>
         </div>
-        <div id="active-nav-info">
-            <div id="active-nav-remaining">
-                <span id="remaining-distance"></span>
-                <span id="remaining-time"></span>
+    </div>
+    <!-- Active Navigation - Bottom Bar (Waze-style) -->
+    <div id="active-nav-bottom" class="hidden">
+        <button id="active-nav-stop" aria-label="Arreter">
+            <svg viewBox="0 0 24 24" width="20" height="20"><rect x="4" y="4" width="16" height="16" rx="2" fill="currentColor"/></svg>
+        </button>
+        <div class="nav-bottom-stats">
+            <div class="nav-bottom-stat">
+                <span id="eta-time" class="nav-bottom-value"></span>
+                <span class="nav-bottom-label">Arrivee</span>
             </div>
-            <div id="active-nav-eta">Arrivee: <span id="eta-time"></span></div>
+            <div class="nav-bottom-sep"></div>
+            <div class="nav-bottom-stat">
+                <span id="remaining-time" class="nav-bottom-value"></span>
+                <span class="nav-bottom-label">Duree</span>
+            </div>
+            <div class="nav-bottom-sep"></div>
+            <div class="nav-bottom-stat">
+                <span id="remaining-distance" class="nav-bottom-value"></span>
+                <span class="nav-bottom-label">Distance</span>
+            </div>
         </div>
-        <button id="active-nav-stop">Arreter</button>
     </div>
 
     <!-- POI Panel -->

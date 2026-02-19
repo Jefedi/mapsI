@@ -404,21 +404,74 @@ body::after {
     margin-top: 2px;
 }
 
+/* ===== ACTIVE NAV - BOTTOM BAR (Waze-style) ===== */
+#active-nav-bottom {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: var(--bg-card-alpha);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 12px 16px calc(var(--safe-bottom) + 12px);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.3);
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+
 #active-nav-stop {
-    width: 100%;
-    padding: 12px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
     border: none;
-    border-radius: 10px;
     background: var(--danger);
     color: var(--text);
-    font-size: 16px;
-    font-weight: 600;
-    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
+    flex-shrink: 0;
 }
 
 #active-nav-stop:active {
     opacity: 0.8;
+}
+
+.nav-bottom-stats {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+}
+
+.nav-bottom-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.nav-bottom-value {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.nav-bottom-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.nav-bottom-sep {
+    width: 1px;
+    height: 28px;
+    background: rgba(255,255,255,0.1);
+}
+
+#eta-time {
+    color: var(--success);
 }
 
 /* ===== LOADING ===== */
@@ -526,6 +579,8 @@ body::after {
     left: 0;
     right: 0;
     bottom: calc(60px + var(--safe-bottom));
+    overflow: hidden;
+    background: var(--bg-dark);
 }
 
 #map-view #map {
@@ -732,6 +787,15 @@ body.navigating #map-view {
     bottom: 0;
 }
 
+body.navigating #map {
+    transition: transform 0.8s ease-out;
+    will-change: transform;
+}
+
+body.navigating .leaflet-control-container {
+    transition: transform 0.8s ease-out;
+}
+
 body.navigating::after {
     display: none;
 }
@@ -900,10 +964,6 @@ body.navigating::after {
 #speed-unit {
     font-size: 12px;
     color: var(--text-secondary);
-}
-
-body.navigating #speed-display {
-    bottom: calc(var(--safe-bottom) + 20px);
 }
 
 /* ===== POI BUTTON ===== */
@@ -1291,31 +1351,13 @@ body.navigating #poi-btn {
     color: var(--primary);
 }
 
-/* ===== ACTIVE NAV INFO ===== */
-#active-nav-info {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-    padding-top: 8px;
-    border-top: 1px solid rgba(255,255,255,0.06);
+/* Active nav bottom bar positioning during navigation */
+body.navigating #active-nav-bottom {
+    bottom: 0;
 }
 
-#active-nav-remaining {
-    display: flex;
-    gap: 16px;
-}
-
-#remaining-distance,
-#remaining-time {
-    font-size: 15px;
-    color: var(--text-secondary);
-}
-
-#active-nav-eta {
-    font-size: 15px;
-    color: var(--success);
-    font-weight: 500;
+body.navigating #speed-display {
+    bottom: calc(var(--safe-bottom) + 80px);
 }
 
 /* ===== NAV PANEL ETA ===== */
@@ -1393,6 +1435,24 @@ body.navigating #poi-btn {
 
 .route-option .route-dist {
     font-size: 12px;
+}
+
+.route-option .route-via {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+}
+
+.route-option .route-toll {
+    font-size: 10px;
+    font-weight: 600;
+    color: #ff9f0a;
+    background: rgba(255, 159, 10, 0.15);
+    padding: 1px 6px;
+    border-radius: 4px;
 }
 
 /* ===== DARK MODE / LIGHT MODE ===== */
@@ -1763,14 +1823,17 @@ body.light-mode::after {
         margin-bottom: 6px;
     }
 
-    #active-nav-info {
-        margin-bottom: 6px;
-        padding-top: 4px;
+    #active-nav-bottom {
+        padding: 8px 12px calc(var(--safe-bottom) + 8px);
+    }
+
+    .nav-bottom-value {
+        font-size: 15px;
     }
 
     #active-nav-stop {
-        padding: 8px;
-        font-size: 14px;
+        width: 36px;
+        height: 36px;
     }
 
     /* Speed display: smaller */
