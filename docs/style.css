@@ -589,9 +589,10 @@ html, body {
     top: 0;
     left: 0;
     right: 0;
-    bottom: calc(60px + var(--safe-bottom));
+    bottom: 0;
     background: var(--bg-dark);
     padding-top: calc(var(--safe-top) + 70px); /* Space for search bar */
+    padding-bottom: calc(60px + var(--safe-bottom) + 16px);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
 }
@@ -796,9 +797,9 @@ body.navigating .leaflet-control-container {
     top: 0;
     left: 0;
     right: 0;
-    bottom: calc(60px + var(--safe-bottom));
+    bottom: 0;
     background: var(--bg-dark);
-    padding: calc(var(--safe-top) + 20px) 16px 20px;
+    padding: calc(var(--safe-top) + 20px) 16px calc(60px + var(--safe-bottom) + 20px);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
 }
@@ -1719,7 +1720,7 @@ body.light-mode .modal-header {
 
     #search-view,
     #settings-view {
-        bottom: calc(44px + var(--safe-bottom));
+        bottom: 0;
     }
 
     /* Search bar: smaller */

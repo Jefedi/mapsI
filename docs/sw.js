@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mapsi-v19';
+const CACHE_NAME = 'mapsi-v20';
 const STATIC_ASSETS = [
     './',
     './index.html',
