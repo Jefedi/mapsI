@@ -565,7 +565,7 @@ html, body {
     top: 0;
     left: 0;
     right: 0;
-    bottom: calc(60px + var(--safe-bottom));
+    bottom: 0;
     overflow: hidden;
     background: var(--bg-dark);
 }
@@ -580,7 +580,7 @@ html, body {
 }
 
 #map-view #locate-btn {
-    bottom: 16px;
+    bottom: calc(60px + var(--safe-bottom) + 16px);
 }
 
 /* ===== SEARCH VIEW ===== */
@@ -977,7 +977,7 @@ body.navigating .leaflet-control-container {
 }
 
 #map-view #poi-btn {
-    bottom: 72px;
+    bottom: calc(60px + var(--safe-bottom) + 72px);
 }
 
 body.navigating #poi-btn {
@@ -1712,9 +1712,9 @@ body.light-mode .modal-header {
         height: 20px;
     }
 
-    /* Map view takes more space */
+    /* Map view extends behind toolbar */
     #map-view {
-        bottom: calc(44px + var(--safe-bottom));
+        bottom: 0;
     }
 
     #search-view,
