@@ -1,5 +1,5 @@
 // ==========================================
-// MapsI PWA v3.1 - Navigation GPS avec OpenStreetMap
+// MapsI PWA v3.2 - Navigation GPS avec OpenStreetMap
 // ==========================================
 
 (function() {
