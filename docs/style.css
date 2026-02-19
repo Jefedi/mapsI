@@ -462,25 +462,24 @@ html, body {
     left: 0;
     right: 0;
     z-index: 1000;
-    background: var(--bg-card-alpha);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    padding: calc(var(--safe-top) + 8px) 16px 16px;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    background: linear-gradient(135deg, #1b8a3e 0%, #25a550 100%);
+    padding: calc(var(--safe-top) + 10px) 16px 14px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.35);
+    color: #ffffff;
 }
 
 #active-nav-instruction {
     display: flex;
     align-items: center;
     gap: 14px;
-    margin-bottom: 12px;
+    margin-bottom: 0;
 }
 
 #active-nav-icon {
-    width: 44px;
-    height: 44px;
-    background: var(--primary);
-    border-radius: 10px;
+    width: 50px;
+    height: 50px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -489,14 +488,19 @@ html, body {
 }
 
 #active-nav-distance {
-    font-size: 28px;
-    font-weight: 700;
+    font-size: 32px;
+    font-weight: 800;
+    color: #ffffff;
 }
 
 #active-nav-street {
-    font-size: 15px;
-    color: var(--text-secondary);
+    font-size: 14px;
+    color: rgba(255,255,255,0.85);
     margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 65vw;
 }
 
 /* ===== ACTIVE NAV - BOTTOM BAR (Waze-style) ===== */
@@ -506,33 +510,36 @@ html, body {
     left: 0;
     right: 0;
     z-index: 1000;
-    background: var(--bg-card-alpha);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    padding: 12px 16px calc(var(--safe-bottom) + 12px);
+    background: rgba(15, 15, 25, 0.92);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    padding: 14px 16px calc(var(--safe-bottom) + 14px);
     display: flex;
     align-items: center;
     gap: 14px;
-    box-shadow: 0 -4px 24px rgba(0,0,0,0.3);
-    border-top: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 -4px 30px rgba(0,0,0,0.4);
+    border-top: 1px solid rgba(255,255,255,0.06);
+    color: #ffffff;
 }
 
 #active-nav-stop {
-    width: 44px;
-    height: 44px;
+    width: 46px;
+    height: 46px;
     border-radius: 50%;
-    border: none;
+    border: 2px solid rgba(255,70,58,0.3);
     background: var(--danger);
-    color: var(--text);
+    color: #ffffff;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     flex-shrink: 0;
+    box-shadow: 0 2px 12px rgba(255,70,58,0.4);
 }
 
 #active-nav-stop:active {
     opacity: 0.8;
+    transform: scale(0.95);
 }
 
 .nav-bottom-stats {
@@ -546,27 +553,30 @@ html, body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    gap: 3px;
 }
 
 .nav-bottom-value {
-    font-size: 18px;
+    font-size: 19px;
     font-weight: 700;
+    color: #ffffff;
 }
 
 .nav-bottom-label {
     font-size: 11px;
-    color: var(--text-secondary);
+    color: rgba(255,255,255,0.55);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .nav-bottom-sep {
     width: 1px;
-    height: 28px;
-    background: rgba(255,255,255,0.1);
+    height: 30px;
+    background: rgba(255,255,255,0.12);
 }
 
 #eta-time {
-    color: var(--success);
+    color: #30d158;
 }
 
 /* ===== LOADING ===== */
@@ -1037,26 +1047,33 @@ body.navigating .leaflet-control-container {
     bottom: 80px;
     left: 16px;
     z-index: 1000;
-    background: var(--bg-card-alpha);
+    background: rgba(15, 15, 25, 0.88);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border-radius: 12px;
-    padding: 10px 14px;
+    border-radius: 16px;
+    padding: 8px 14px;
     display: flex;
-    align-items: baseline;
-    gap: 4px;
-    box-shadow: 0 2px 16px rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.08);
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.1);
+    min-width: 64px;
+    color: #ffffff;
 }
 
 #speed-value {
-    font-size: 28px;
-    font-weight: 700;
+    font-size: 30px;
+    font-weight: 800;
+    color: #ffffff;
+    line-height: 1.1;
 }
 
 #speed-unit {
-    font-size: 12px;
-    color: var(--text-secondary);
+    font-size: 10px;
+    color: rgba(255,255,255,0.55);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 /* ===== POI BUTTON ===== */
@@ -1914,38 +1931,39 @@ body.light-mode .quick-poi-popup-header {
     }
 
     #active-nav-icon {
-        width: 36px;
-        height: 36px;
+        width: 40px;
+        height: 40px;
     }
 
     #active-nav-distance {
-        font-size: 22px;
+        font-size: 24px;
     }
 
     #active-nav-instruction {
-        margin-bottom: 6px;
+        margin-bottom: 0;
     }
 
     #active-nav-bottom {
-        padding: 8px 12px calc(var(--safe-bottom) + 8px);
+        padding: 10px 12px calc(var(--safe-bottom) + 10px);
     }
 
     .nav-bottom-value {
-        font-size: 15px;
+        font-size: 16px;
     }
 
     #active-nav-stop {
-        width: 36px;
-        height: 36px;
+        width: 38px;
+        height: 38px;
     }
 
     /* Speed display: smaller */
     #speed-display {
         padding: 6px 10px;
+        min-width: 54px;
     }
 
     #speed-value {
-        font-size: 22px;
+        font-size: 24px;
     }
 
     /* Locate/POI buttons */
