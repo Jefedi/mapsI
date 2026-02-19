@@ -716,7 +716,7 @@
         map = L.map('map', { center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM, zoomControl: false, attributionControl: true });
         const tile = MAP_TILES[settings.mapStyle] || MAP_TILES.standard;
         tileLayer = L.tileLayer(tile.url, { maxZoom: tile.maxZoom, attribution: tile.attr }).addTo(map);
-        setTimeout(() => applySettings(), 100);
+        setTimeout(() => { applySettings(); map.invalidateSize(); }, 100);
         setupMapEvents();
         autoLocateOnLoad();
     }

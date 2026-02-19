@@ -46,7 +46,7 @@ body::after {
     bottom: 0;
     left: 0;
     right: 0;
-    height: calc(env(safe-area-inset-bottom, 0px) + 10px);
+    height: env(safe-area-inset-bottom, 0px);
     background: var(--bg-card);
     z-index: 1002;
     pointer-events: none;
@@ -589,6 +589,7 @@ body::after {
     left: 0;
     right: 0;
     bottom: 0;
+    background: var(--bg-dark);
 }
 
 #map-view #locate-btn {
@@ -1524,9 +1525,7 @@ body.light-mode::after {
     color: #000;
 }
 
-#speed-display {
-    position: relative;
-}
+/* Speed limit is positioned relative to speed display */
 
 .speed-warning {
     color: var(--danger) !important;
