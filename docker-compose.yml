@@ -4,7 +4,7 @@ services:
     build: .
     container_name: mapsi
     ports:
-      - "80:80"
+      - "127.0.0.1:9565:80"
     depends_on:
       - nominatim
       - valhalla
