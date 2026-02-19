@@ -76,6 +76,8 @@
     let currentSpeedLimit = null;
     let speedLimitTimeout = null;
     let addingWaypoint = false;
+    let lastMatchedSegmentIndex = 0;
+    let snappedPosition = null;
 
     let longPressTimer = null;
     let longPressStartX = 0;
@@ -943,12 +945,17 @@
         const lat = pos.coords.latitude, lng = pos.coords.longitude, speed = pos.coords.speed;
         const wasNavigating = userPosition ? userPosition._navIcon : false;
         userPosition = { lat, lng, accuracy: pos.coords.accuracy, heading: pos.coords.heading, speed };
+        let displayLat = lat, displayLng = lng;
+        if (isNavigating && routeData) {
+            const snap = snapToRoute(lat, lng);
+            if (snap) { displayLat = snap.lat; displayLng = snap.lng; }
+        }
         if (!userMarker) {
             const icon = isNavigating ? createNavIcon() : createDotIcon();
-            userMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(map);
+            userMarker = L.marker([displayLat, displayLng], { icon, zIndexOffset: 1000 }).addTo(map);
             userPosition._navIcon = isNavigating;
         } else {
-            userMarker.setLatLng([lat, lng]);
+            userMarker.setLatLng([displayLat, displayLng]);
             if (isNavigating !== wasNavigating) {
                 userMarker.setIcon(isNavigating ? createNavIcon() : createDotIcon());
                 userPosition._navIcon = isNavigating;
@@ -1171,7 +1178,7 @@
 
     function selectRoute(index) {
         selectedRouteIndex = index;
-        routeData = allRoutes[index];
+        routeData = allRoutes[index]; lastMatchedSegmentIndex = 0; snappedPosition = null;
         // Flatten all legs' steps
         routeSteps = [];
         routeData.legs.forEach(leg => { routeSteps.push(...leg.steps); });
@@ -1255,7 +1262,7 @@
 
     // ===== ACTIVE NAVIGATION =====
     function startNavigation() {
-        isNavigating = true; currentStepIndex = 0; lastSpokenStep = -1;
+        isNavigating = true; currentStepIndex = 0; lastSpokenStep = -1; lastMatchedSegmentIndex = 0; snappedPosition = null;
         $navPanel.classList.add('hidden'); $transportModes.classList.add('hidden'); $routeAlternatives.classList.add('hidden');
         $activeNav.classList.remove('hidden'); $activeNavBottom.classList.remove('hidden'); $locateBtn.classList.add('nav-hidden');
         document.body.classList.add('navigating');
@@ -1268,7 +1275,7 @@
     }
 
     function stopNavigation() {
-        isNavigating = false;
+        isNavigating = false; lastMatchedSegmentIndex = 0; snappedPosition = null;
         resetMapBearing();
         $activeNav.classList.add('hidden'); $activeNavBottom.classList.add('hidden'); $speedDisplay.classList.add('hidden'); $speedLimit.classList.add('hidden');
         $elevationProfile.classList.add('hidden');
@@ -1298,10 +1305,13 @@
             speakStep(currentStepIndex);
         }
         const nextStep = routeSteps[currentStepIndex];
-        if (nextStep) $activeNavDistance.textContent = formatDistance(haversine(userLat, userLng, nextStep.maneuver.location[1], nextStep.maneuver.location[0]));
-        updateRemainingInfo(userLat, userLng);
-        map.setView([userLat, userLng], NAV_ZOOM, { animate: true, duration: 0.5 });
-        updateMapBearing(pos.coords.heading);
+        const dispLat = snappedPosition ? snappedPosition.lat : userLat;
+        const dispLng = snappedPosition ? snappedPosition.lng : userLng;
+        if (nextStep) $activeNavDistance.textContent = formatDistance(haversine(dispLat, dispLng, nextStep.maneuver.location[1], nextStep.maneuver.location[0]));
+        updateRemainingInfo(dispLat, dispLng);
+        map.setView([dispLat, dispLng], NAV_ZOOM, { animate: true, duration: 0.5 });
+        const heading = (snappedPosition && snappedPosition.bearing != null) ? snappedPosition.bearing : pos.coords.heading;
+        updateMapBearing(heading);
         if (settings.autoReroute) checkOffRoute(userLat, userLng);
         // 7. Speed limit
         fetchSpeedLimit(userLat, userLng);
@@ -1526,6 +1536,54 @@
         const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
+    // ===== SNAP-TO-ROUTE =====
+    function projectPointOnSegment(pLat, pLon, aLat, aLon, bLat, bLon) {
+        const cosLat = Math.cos(aLat * Math.PI / 180);
+        const mPerDegLat = 110540, mPerDegLon = 111320 * cosLat;
+        const abLat = (bLat - aLat) * mPerDegLat, abLon = (bLon - aLon) * mPerDegLon;
+        const apLat = (pLat - aLat) * mPerDegLat, apLon = (pLon - aLon) * mPerDegLon;
+        const abDotAb = abLat * abLat + abLon * abLon;
+        if (abDotAb < 1e-10) return { lat: aLat, lon: aLon, t: 0, distMeters: Math.sqrt(apLat * apLat + apLon * apLon) };
+        let t = (apLat * abLat + apLon * abLon) / abDotAb;
+        t = Math.max(0, Math.min(1, t));
+        const projLat = t * abLat, projLon = t * abLon;
+        const dLat = apLat - projLat, dLon = apLon - projLon;
+        return { lat: aLat + projLat / mPerDegLat, lon: aLon + projLon / mPerDegLon, t, distMeters: Math.sqrt(dLat * dLat + dLon * dLon) };
+    }
+
+    function calculateSegmentBearing(lat1, lon1, lat2, lon2) {
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const lat1R = lat1 * Math.PI / 180, lat2R = lat2 * Math.PI / 180;
+        const y = Math.sin(dLon) * Math.cos(lat2R);
+        const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLon);
+        return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    }
+
+    function snapToRoute(userLat, userLon) {
+        if (!routeData?.geometry?.coordinates) return null;
+        const coords = routeData.geometry.coordinates;
+        if (coords.length < 2) return null;
+        let bestDist = Infinity, bestResult = null, bestIdx = lastMatchedSegmentIndex;
+        const startIdx = Math.max(0, lastMatchedSegmentIndex - 10);
+        const endIdx = Math.min(coords.length - 1, lastMatchedSegmentIndex + 50);
+        for (let i = startIdx; i < endIdx; i++) {
+            const proj = projectPointOnSegment(userLat, userLon, coords[i][1], coords[i][0], coords[i + 1][1], coords[i + 1][0]);
+            if (proj.distMeters < bestDist) { bestDist = proj.distMeters; bestResult = proj; bestIdx = i; }
+        }
+        if (bestDist > REROUTE_THRESHOLD) {
+            for (let i = 0; i < coords.length - 1; i++) {
+                if (i >= startIdx && i < endIdx) continue;
+                const proj = projectPointOnSegment(userLat, userLon, coords[i][1], coords[i][0], coords[i + 1][1], coords[i + 1][0]);
+                if (proj.distMeters < bestDist) { bestDist = proj.distMeters; bestResult = proj; bestIdx = i; }
+            }
+        }
+        if (bestDist > REROUTE_THRESHOLD || !bestResult) { snappedPosition = null; return null; }
+        lastMatchedSegmentIndex = bestIdx;
+        const bearing = calculateSegmentBearing(coords[bestIdx][1], coords[bestIdx][0], coords[bestIdx + 1][1], coords[bestIdx + 1][0]);
+        snappedPosition = { lat: bestResult.lat, lng: bestResult.lon, bearing };
+        return snappedPosition;
+    }
+
     function translateManeuver(type, modifier, street) {
         const name = street || 'la route';
         const turns = { 'turn-left': 'Tournez a gauche', 'turn-right': 'Tournez a droite', 'turn-slight left': 'Legere gauche', 'turn-slight right': 'Legere droite', 'turn-sharp left': 'Tournez fortement a gauche', 'turn-sharp right': 'Tournez fortement a droite', 'continue-': 'Continuez tout droit', 'depart-': 'Depart', 'arrive-': 'Vous etes arrive', 'roundabout-': 'Au rond-point', 'merge-': 'Rejoignez', 'fork-left': 'Prenez a gauche', 'fork-right': 'Prenez a droite' };
