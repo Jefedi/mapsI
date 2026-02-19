@@ -941,10 +941,19 @@
 
     function updateUserPosition(pos) {
         const lat = pos.coords.latitude, lng = pos.coords.longitude, speed = pos.coords.speed;
+        const wasNavigating = userPosition ? userPosition._navIcon : false;
         userPosition = { lat, lng, accuracy: pos.coords.accuracy, heading: pos.coords.heading, speed };
-        const icon = isNavigating ? createNavIcon(pos.coords.heading) : createDotIcon();
-        if (!userMarker) userMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(map);
-        else { userMarker.setLatLng([lat, lng]); userMarker.setIcon(icon); }
+        if (!userMarker) {
+            const icon = isNavigating ? createNavIcon() : createDotIcon();
+            userMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(map);
+            userPosition._navIcon = isNavigating;
+        } else {
+            userMarker.setLatLng([lat, lng]);
+            if (isNavigating !== wasNavigating) {
+                userMarker.setIcon(isNavigating ? createNavIcon() : createDotIcon());
+                userPosition._navIcon = isNavigating;
+            }
+        }
         updateSpeedDisplay(speed);
     }
 
@@ -993,9 +1002,8 @@
         return L.divIcon({ className: '', html: '<div class="user-location-pulse"></div><div class="user-location-dot"></div>', iconSize: [20, 20], iconAnchor: [10, 10] });
     }
 
-    function createNavIcon(heading) {
-        const rot = (heading != null && !isNaN(heading)) ? heading : 0;
-        return L.divIcon({ className: 'user-nav-marker', html: `<svg viewBox="0 0 48 48" style="transform:rotate(${rot}deg);transition:transform 0.5s ease-out"><path d="M24 4L40 36L24 26L8 36Z" fill="#0a84ff" stroke="white" stroke-width="3" stroke-linejoin="round"/></svg>`, iconSize: [48, 48], iconAnchor: [24, 24] });
+    function createNavIcon() {
+        return L.divIcon({ className: 'user-nav-marker', html: '<svg viewBox="0 0 48 48"><defs><filter id="ns" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.5"/></filter></defs><path d="M24 6L38 34L24 25L10 34Z" fill="#0a84ff" filter="url(#ns)"/></svg>', iconSize: [48, 48], iconAnchor: [24, 24] });
     }
 
     function updateMapBearing(heading) {
@@ -1253,7 +1261,7 @@
         document.body.classList.add('navigating');
         clearAltRouteLayers();
         startWatchingPosition(); updateNavigationDisplay();
-        if (userPosition) { map.setView([userPosition.lat, userPosition.lng], NAV_ZOOM); if (userMarker) userMarker.setIcon(createNavIcon(userPosition.heading)); updateMapBearing(userPosition.heading); }
+        if (userPosition) { map.setView([userPosition.lat, userPosition.lng], NAV_ZOOM); if (userMarker) userMarker.setIcon(createNavIcon()); userPosition._navIcon = true; updateMapBearing(userPosition.heading); }
         if (settings.showSpeed) $speedDisplay.classList.remove('hidden');
         if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(() => {});
         speakStep(0);
@@ -1271,7 +1279,7 @@
         if (routeShadowLayer) { map.removeLayer(routeShadowLayer); routeShadowLayer = null; }
         if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
         clearAltRouteLayers(); clearPOIMarkers(); clearWaypoints();
-        if (userMarker && userPosition) userMarker.setIcon(createDotIcon());
+        if (userMarker && userPosition) { userMarker.setIcon(createDotIcon()); userPosition._navIcon = false; }
         if (userPosition) map.setView([userPosition.lat, userPosition.lng], 15);
         $transportModes.classList.add('hidden'); $searchInput.value = ''; $searchClear.classList.add('hidden');
         destination = null; routeData = null; routeSteps = []; allRoutes = []; currentSpeedLimit = null;
