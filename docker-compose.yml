@@ -1,7 +1,178 @@
 services:
+  # Frontend + Reverse Proxy
   mapsi:
     build: .
     container_name: mapsi
     ports:
-      - "80:80"
+      - "127.0.0.1:9565:80"
+    depends_on:
+      nominatim:
+        condition: service_started
+      valhalla:
+        condition: service_started
+      overpass:
+        condition: service_started
+      tileserver:
+        condition: service_started
+      elevation:
+        condition: service_started
+      fuel-proxy:
+        condition: service_started
+      weather-proxy:
+        condition: service_started
+      sync:
+        condition: service_started
     restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+
+  # Geocoding (Nominatim)
+  nominatim:
+    image: mediagis/nominatim:4.4
+    container_name: nominatim
+    environment:
+      PBF_PATH: /data/france-latest.osm.pbf
+      REPLICATION_URL: ""
+    volumes:
+      - ./data/osm:/data:ro
+      - nominatim-db:/var/lib/postgresql/14/main
+    shm_size: 2g
+    restart: unless-stopped
+    mem_limit: 4g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/status"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  # Routing (Valhalla - auto, pedestrian, bicycle in one instance)
+  valhalla:
+    image: valhalla/valhalla:run-latest
+    container_name: valhalla
+    volumes:
+      - ./data/valhalla:/custom_files
+    restart: unless-stopped
+    mem_limit: 4g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/status"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  # POI search (Overpass API)
+  overpass:
+    image: wiktorn/overpass-api:0.7.62.1
+    container_name: overpass
+    environment:
+      OVERPASS_META: "no"
+      OVERPASS_MODE: init
+      OVERPASS_PLANET_URL: "file:///data/france-latest.osm.pbf"
+      OVERPASS_RULES_LOAD: "10"
+    volumes:
+      - ./data/osm:/data:ro
+      - overpass-db:/db
+    restart: unless-stopped
+    mem_limit: 4g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/api/status"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 300s
+
+  # Map tiles (TileServer GL)
+  tileserver:
+    image: maptiler/tileserver-gl:v4.15.0
+    container_name: tileserver
+    volumes:
+      - ./data/tiles:/data:ro
+    command: --config /data/config.json --port 8080
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # Elevation data (OpenTopoData - built from source)
+  elevation:
+    build:
+      context: https://github.com/ajnisbet/opentopodata.git
+      dockerfile: docker/Dockerfile
+    container_name: elevation
+    volumes:
+      - ./data/elevation:/data:ro
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # Fuel price proxy (server-side only external requests)
+  fuel-proxy:
+    build: ./services/fuel-proxy
+    container_name: fuel-proxy
+    volumes:
+      - fuel-data:/data
+    environment:
+      SYNC_INTERVAL_MINUTES: "30"
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Weather proxy (Open-Meteo - server-side caching proxy)
+  weather-proxy:
+    build: ./services/weather-proxy
+    container_name: weather-proxy
+    volumes:
+      - weather-data:/data
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Sync service (favorites/settings between devices)
+  sync:
+    build: ./services/sync
+    container_name: sync
+    volumes:
+      - sync-data:/data
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  nominatim-db:
+  overpass-db:
+  fuel-data:
+  weather-data:
+  sync-data:

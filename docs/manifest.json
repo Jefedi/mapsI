@@ -3,10 +3,12 @@
     "short_name": "MapsI",
     "description": "Navigation GPS gratuite avec OpenStreetMap",
     "start_url": "./",
+    "scope": "./",
     "display": "standalone",
     "orientation": "portrait",
     "background_color": "#1a1a2e",
     "theme_color": "#1a1a2e",
+    "categories": ["navigation", "travel"],
     "icons": [
         {
             "src": "icons/icon-192.png",
@@ -23,6 +25,14 @@
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "maskable"
+        }
+    ],
+    "shortcuts": [
+        {
+            "name": "Rechercher",
+            "short_name": "Recherche",
+            "url": "./#search",
+            "icons": [{"src": "icons/icon-192.png", "sizes": "192x192"}]
         }
     ]
 }

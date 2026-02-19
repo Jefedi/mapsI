@@ -1,0 +1,5 @@
+datasets:
+  - name: mapzen
+    path: /data/srtm/
+    filename_epsg: 4326
+    filename_tile_size: 1
