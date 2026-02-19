@@ -58,36 +58,44 @@ else
     echo "SKIP: mbtiles deja present"
 fi
 
-# ===== 4. Download elevation data (Mapzen GeoTIFF for France) =====
+# ===== 4. Download elevation data (SRTM 90m for France) =====
 echo ""
-echo "--- 4/5 Telechargement des donnees d'elevation ---"
-ELEV_DIR="$DATA_DIR/elevation/mapzen"
-ELEV_COUNT=$(ls "$ELEV_DIR"/*.tif 2>/dev/null | wc -l)
+echo "--- 4/5 Telechargement des donnees d'elevation (SRTM) ---"
+ELEV_DIR="$DATA_DIR/elevation/srtm"
+mkdir -p "$ELEV_DIR"
+ELEV_COUNT=$(find "$ELEV_DIR" -name "*.tif" 2>/dev/null | wc -l)
 if [ "$ELEV_COUNT" -lt 10 ]; then
-    echo "Telechargement des tuiles d'elevation Mapzen pour la France..."
-    echo "(lat 42-51, lon -5 a 8 = ~130 fichiers, ~3 Go)"
+    echo "Telechargement des tuiles SRTM 90m pour la France..."
+    echo "(lat 42-51, lon W005 a E008 = ~130 fichiers)"
+    FAILED=0
     for lat in $(seq 42 51); do
         for lon in $(seq -5 8); do
             if [ "$lon" -ge 0 ]; then
-                NS="N"
-                EW="E"
-                LAT_STR=$(printf "%02d" $lat)
-                LON_STR=$(printf "%03d" $lon)
+                LAT_STR=$(printf "N%02d" $lat)
+                LON_STR=$(printf "E%03d" $lon)
             else
-                NS="N"
-                EW="W"
-                LAT_STR=$(printf "%02d" $lat)
-                LON_STR=$(printf "%03d" $((-lon)))
+                LAT_STR=$(printf "N%02d" $lat)
+                LON_STR=$(printf "W%03d" $((-lon)))
             fi
-            FILE="${NS}${LAT_STR}${EW}${LON_STR}.tif"
-            if [ ! -f "$ELEV_DIR/$FILE" ]; then
-                wget -q "https://elevation-tiles-prod.s3.amazonaws.com/geotiff/${FILE}" \
-                    -O "$ELEV_DIR/$FILE" 2>/dev/null || true
+            FILE="${LAT_STR}${LON_STR}.hgt"
+            TIFFILE="${LAT_STR}${LON_STR}.tif"
+            if [ ! -f "$ELEV_DIR/$TIFFILE" ] && [ ! -f "$ELEV_DIR/$FILE" ]; then
+                # Try elevation-tiles-prod S3 (skimmed tiles, 1-degree GeoTIFF)
+                wget -q --timeout=10 \
+                    "https://elevation-tiles-prod.s3.amazonaws.com/skadi/${LAT_STR}/${FILE}.gz" \
+                    -O "$ELEV_DIR/${FILE}.gz" 2>/dev/null
+                if [ -f "$ELEV_DIR/${FILE}.gz" ] && [ -s "$ELEV_DIR/${FILE}.gz" ]; then
+                    gunzip -f "$ELEV_DIR/${FILE}.gz" 2>/dev/null || rm -f "$ELEV_DIR/${FILE}.gz"
+                else
+                    rm -f "$ELEV_DIR/${FILE}.gz"
+                    FAILED=$((FAILED+1))
+                fi
             fi
         done
         echo "  Latitude $lat done"
     done
-    echo "OK: Donnees d'elevation telechargees"
+    FINAL_COUNT=$(find "$ELEV_DIR" -name "*.hgt" -o -name "*.tif" 2>/dev/null | wc -l)
+    echo "OK: $FINAL_COUNT fichiers d'elevation telecharges ($FAILED echoues - zones maritimes normales)"
 else
     echo "SKIP: Donnees d'elevation deja presentes ($ELEV_COUNT fichiers)"
 fi

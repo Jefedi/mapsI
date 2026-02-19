@@ -60,9 +60,11 @@ services:
     command: --config /data/config.json --port 8080
     restart: unless-stopped
 
-  # Elevation data (OpenTopoData)
+  # Elevation data (OpenTopoData - built from source)
   elevation:
-    image: ajnisbet/opentopodata:latest
+    build:
+      context: https://github.com/ajnisbet/opentopodata.git
+      dockerfile: docker/Dockerfile
     container_name: elevation
     volumes:
       - ./data/elevation:/data:ro
