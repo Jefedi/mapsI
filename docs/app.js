@@ -14,6 +14,7 @@
     const VALHALLA_URL = '/api/valhalla';
     const FUEL_API = '/api/fuel/records';
     const OVERPASS_URL = '/api/overpass/interpreter';
+    const WEATHER_URL = '/api/weather';
     const DEFAULT_CENTER = [46.603354, 1.888334];
     const DEFAULT_ZOOM = 6;
     const SEARCH_DEBOUNCE = 400;
@@ -26,13 +27,8 @@
     const SETTINGS_KEY = 'mapsi_settings';
     const REROUTE_THRESHOLD = 50;
     const POI_RADIUS = 5000;
-    const WEATHER_URL = '/api/weather';
-    const SYNC_URL = '/api/sync';
     const TRIPS_DB = 'mapsi_trips';
     const TRIPS_STORE = 'trips';
-    const RADAR_QUERY_INTERVAL = 30000;
-    const RADAR_ALERT_DISTANCE = 500;
-    const WEATHER_UPDATE_INTERVAL = 900000; // 15 min
 
     const MAP_TILES = {
         standard: { url: '/tiles/styles/osm-bright/{z}/{x}/{y}.png', attr: '&copy; OpenMapTiles &copy; OSM', maxZoom: 19 },
@@ -54,7 +50,7 @@
         autoNightMap: false,
         radarAlerts: true,
         syncEnabled: false,
-        dashboardItems: ['altitude', 'heading'],
+        dashboardItems: ['speed', 'altitude', 'heading'],
         vehicleProfile: { height: null, weight: null, width: null, length: null }
     };
 
@@ -95,20 +91,44 @@
     let longPressStartY = 0;
     let routeAbortController = null;
 
-    // New feature state
+    // Feature 1: Isochrones
     let isochroneLayer = null;
-    let gpxImportLayer = null;
+
+    // Feature 5: Trip history
+    let tripDB = null;
+    let currentTrip = null;
+    let tripPositions = [];
+    let tripMaxSpeed = 0;
+    let tripLayer = null;
+
+    // Feature 6: Marker clustering
+    let poiClusterGroup = null;
+
+    // Feature 7: Route simulation
     let isSimulating = false;
     let simulationFrame = null;
     let simulationIndex = 0;
+    let simulationMarker = null;
+    let simulationSpeed = 10;
+
+    // Feature 8: Speed cameras/radars
     let radarMarkers = [];
     let knownRadars = new Set();
     let radarQueryTimeout = null;
-    let tripRecording = null;
-    let tripsDb = null;
+
+    // Feature 4: Auto night mode
+    let previousDayStyle = null;
+
+    // Feature 10: Dashboard
+    let currentAltitude = null;
+    let currentHeading = null;
+
+    // Feature 13: Weather
     let weatherTimeout = null;
-    let previousMapStyle = null;
-    let poiClusterGroup = null;
+    let lastWeatherPos = null;
+
+    // Feature 12: Offline zone
+    let offlineDownloading = false;
 
     // ===== TOAST NOTIFICATIONS =====
     function showToast(message, type = 'info', duration = 3000) {
@@ -199,44 +219,8 @@
     const $quickPoiPopupResults = $('quick-poi-popup-results');
     const $quickPoiPopupClose = $('quick-poi-popup-close');
 
-    // New feature DOM refs
+    // Feature 1: Isochrone DOM
     const $isochroneBtn = $('isochrone-btn');
-    const $isochroneModal = $('isochrone-modal');
-    const $isochroneModalClose = $('isochrone-modal-close');
-    const $isochroneCalcBtn = $('isochrone-calc-btn');
-    const $gpxImportInput = $('gpx-import-input');
-    const $navGpxBtn = $('nav-gpx-btn');
-    const $navSimulateBtn = $('nav-simulate-btn');
-    const $gpxModal = $('gpx-modal');
-    const $gpxModalClose = $('gpx-modal-close');
-    const $gpxExportBtn = $('gpx-export-btn');
-    const $gpxImportBtn = $('gpx-import-btn');
-    const $optimizeWaypointsBtn = $('optimize-waypoints-btn');
-    const $weatherWidget = $('weather-widget');
-    const $weatherIcon = $('weather-icon');
-    const $weatherTemp = $('weather-temp');
-    const $weatherWind = $('weather-wind');
-    const $tripsList = $('trips-list');
-    const $tripsEmpty = $('trips-empty');
-    const $tripsClearBtn = $('trips-clear-btn');
-    const $navDashboard = $('nav-dashboard');
-    const $dashAltitude = $('dash-altitude');
-    const $dashHeading = $('dash-heading');
-    const $shortcutsModal = $('shortcuts-modal');
-    const $shortcutsModalClose = $('shortcuts-modal-close');
-    const $offlineDownloadBtn = $('offline-download-btn');
-    const $offlineProgress = $('offline-progress');
-    const $offlineProgressFill = $('offline-progress-fill');
-    const $offlineProgressText = $('offline-progress-text');
-    const $autoNightToggle = $('auto-night-toggle');
-    const $radarAlertsToggle = $('radar-alerts-toggle');
-    const $syncToggle = $('sync-toggle');
-    const $vehicleHeight = $('vehicle-height');
-    const $vehicleWeight = $('vehicle-weight');
-    const $vehicleWidth = $('vehicle-width');
-    const $vehicleLength = $('vehicle-length');
-    const $dashAltitudeToggle = $('dash-altitude-toggle');
-    const $dashHeadingToggle = $('dash-heading-toggle');
 
     // ===== INIT =====
     function init() {
@@ -254,19 +238,25 @@
         setupQuickPOIEvents();
         setupWaypointEvents();
         setupParkingEvents();
-        setupIsochroneEvents();
-        setupGPXEvents();
-        setupSimulationEvents();
-        setupKeyboardShortcuts();
-        setupWeather();
-        setupTripsDB();
-        setupOfflineDownload();
-        setupNewSettingsEvents();
-        setupSyncEvents();
         renderHistory();
         renderFavorites();
-        renderTrips();
-        initPoiClusterGroup();
+        // New feature setups
+        setupIsochroneEvents();
+        setupGPXEvents();
+        setupOptimizeWaypointsEvents();
+        setupSimulationEvents();
+        setupKeyboardShortcuts();
+        setupOfflineDownload();
+        setupWeather();
+        setupChargingStationEvents();
+        setupDashboardSettings();
+        setupVehicleProfileSettings();
+        setupSyncSettings();
+        setupRadarSettings();
+        setupAutoNightSettings();
+        setupTripHistoryUI();
+        initMarkerCluster();
+        initTripsDB();
     }
 
     // ===== SETTINGS =====
@@ -286,6 +276,7 @@
 
     function saveSettings() {
         try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {}
+        if (settings.syncEnabled) syncSettingsPush();
     }
 
     function isDarkMode() {
@@ -297,15 +288,15 @@
     function applySettings() {
         const dark = isDarkMode();
         document.body.classList.toggle('light-mode', !dark);
-        $themeSelect.value = settings.theme;
-        $mapStyleSelect.value = settings.mapStyle;
-        $fuelTypeSelect.value = settings.fuelType;
-        $voiceToggle.checked = settings.voiceEnabled;
-        $autoRerouteToggle.checked = settings.autoReroute;
-        $showSpeedToggle.checked = settings.showSpeed;
-        $avoidMotorwayToggle.checked = settings.avoidMotorway;
-        $avoidTollToggle.checked = settings.avoidToll;
-        $avoidFerryToggle.checked = settings.avoidFerry;
+        if ($themeSelect) $themeSelect.value = settings.theme;
+        if ($mapStyleSelect) $mapStyleSelect.value = settings.mapStyle;
+        if ($fuelTypeSelect) $fuelTypeSelect.value = settings.fuelType;
+        if ($voiceToggle) $voiceToggle.checked = settings.voiceEnabled;
+        if ($autoRerouteToggle) $autoRerouteToggle.checked = settings.autoReroute;
+        if ($showSpeedToggle) $showSpeedToggle.checked = settings.showSpeed;
+        if ($avoidMotorwayToggle) $avoidMotorwayToggle.checked = settings.avoidMotorway;
+        if ($avoidTollToggle) $avoidTollToggle.checked = settings.avoidToll;
+        if ($avoidFerryToggle) $avoidFerryToggle.checked = settings.avoidFerry;
 
         const tilePane = document.querySelector('.leaflet-tile-pane');
         if (tilePane) {
@@ -314,17 +305,6 @@
 
         const metaTheme = document.querySelector('meta[name="theme-color"]');
         if (metaTheme) metaTheme.content = dark ? '#1a1a2e' : '#f2f2f7';
-
-        // New settings
-        if ($autoNightToggle) $autoNightToggle.checked = settings.autoNightMap;
-        if ($radarAlertsToggle) $radarAlertsToggle.checked = settings.radarAlerts;
-        if ($syncToggle) $syncToggle.checked = settings.syncEnabled;
-        if ($vehicleHeight) $vehicleHeight.value = settings.vehicleProfile?.height || '';
-        if ($vehicleWeight) $vehicleWeight.value = settings.vehicleProfile?.weight || '';
-        if ($vehicleWidth) $vehicleWidth.value = settings.vehicleProfile?.width || '';
-        if ($vehicleLength) $vehicleLength.value = settings.vehicleProfile?.length || '';
-        if ($dashAltitudeToggle) $dashAltitudeToggle.checked = settings.dashboardItems?.includes('altitude');
-        if ($dashHeadingToggle) $dashHeadingToggle.checked = settings.dashboardItems?.includes('heading');
     }
 
     function setupSettingsEvents() {
@@ -409,7 +389,7 @@
         $searchContainer.classList.toggle('hidden', view === 'settings');
         hideQuickPoiBar();
         if (view === 'map') setTimeout(() => map.invalidateSize(), 100);
-        else if (view === 'search') { renderHistory(); renderFavorites(); }
+        else if (view === 'search') { renderHistory(); renderFavorites(); renderTripHistory(); }
     }
 
     function setupToolbar() {
@@ -462,12 +442,15 @@
 
     // ===== 6. FAVORITES (with delete) =====
     function loadFavorites() {
+        if (settings.syncEnabled) {
+            syncFavoritesPull().then(() => {}).catch(() => {});
+        }
         try { const saved = localStorage.getItem(FAVORITES_KEY); favorites = saved ? JSON.parse(saved) : []; } catch (e) { favorites = []; }
     }
 
     function saveFavorites() {
         try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); } catch (e) {}
-        syncToServer();
+        if (settings.syncEnabled) syncFavoritesPush();
     }
 
     const FAV_ICONS = {
@@ -587,7 +570,6 @@
         });
         // 2. Setup drag to reorder
         setupWaypointDrag();
-        renderWaypointsOptimizeBtn();
     }
 
     // ===== 2. DRAG TO REORDER WAYPOINTS =====
@@ -699,12 +681,13 @@
                 document.querySelectorAll('.poi-cat-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 if (btn.dataset.cat === 'fuel') searchFuelWithPrices();
+                else if (btn.dataset.cat === 'charging') searchChargingStations();
                 else searchPOI(btn.dataset.cat);
             });
         });
     }
 
-    const POI_QUERIES = { fuel: '[amenity=fuel]', restaurant: '[amenity=restaurant]', parking: '[amenity=parking]', pharmacy: '[amenity=pharmacy]', charging: '[amenity=charging_station]' };
+    const POI_QUERIES = { fuel: '[amenity=fuel]', restaurant: '[amenity=restaurant]', parking: '[amenity=parking]', pharmacy: '[amenity=pharmacy]' };
 
     async function searchPOI(category) {
         if (!userPosition) { showToast('Position non disponible', 'error'); return; }
@@ -827,9 +810,9 @@
     }
 
     function clearPOIMarkers() {
-        if (poiClusterGroup) { poiClusterGroup.clearLayers(); }
         poiMarkers.forEach(m => map.removeLayer(m));
         poiMarkers = [];
+        if (poiClusterGroup) poiClusterGroup.clearLayers();
     }
 
     // ===== 12b. QUICK POI BAR =====
@@ -866,6 +849,7 @@
         $quickPoiPopup.classList.remove('hidden');
 
         if (category === 'fuel') await searchQuickFuel();
+        else if (category === 'charging') await searchQuickCharging();
         else await searchQuickOverpass(category);
     }
 
@@ -917,8 +901,7 @@
             parking: `[out:json][timeout:10];(node[amenity=parking](around:${radius},${lat},${lng});way[amenity=parking](around:${radius},${lat},${lng}););out body center 15;`,
             rest_area: `[out:json][timeout:10];(node[highway=rest_area](around:${radius},${lat},${lng});way[highway=rest_area](around:${radius},${lat},${lng});node[highway=services](around:${radius},${lat},${lng});way[highway=services](around:${radius},${lat},${lng}););out body center 15;`,
             toilets: `[out:json][timeout:10];(node[amenity=toilets](around:${radius},${lat},${lng});way[amenity=toilets](around:${radius},${lat},${lng}););out body center 15;`,
-            fuel_fallback: `[out:json][timeout:10];node[amenity=fuel](around:${POI_RADIUS},${lat},${lng});out body 15;`,
-            charging: `[out:json][timeout:10];(node[amenity=charging_station](around:${radius},${lat},${lng});way[amenity=charging_station](around:${radius},${lat},${lng}););out body center 15;`
+            fuel_fallback: `[out:json][timeout:10];node[amenity=fuel](around:${POI_RADIUS},${lat},${lng});out body 15;`
         };
         const overpassData = queries[category];
         if (!overpassData) return;
@@ -973,7 +956,7 @@
             if (el.tags?.capacity) parts.push(el.tags.capacity + ' bornes');
             if (el.tags?.['socket:type2'] === 'yes') parts.push('Type 2');
             if (el.tags?.['socket:chademo'] === 'yes') parts.push('CHAdeMO');
-            if (el.tags?.['socket:ccs'] === 'yes') parts.push('CCS');
+            if (el.tags?.['socket:ccs'] === 'yes' || el.tags?.['socket:type2_combo'] === 'yes') parts.push('CCS');
         }
         return parts.join(' · ');
     }
@@ -1064,6 +1047,8 @@
         const lat = pos.coords.latitude, lng = pos.coords.longitude, speed = pos.coords.speed;
         const wasNavigating = userPosition ? userPosition._navIcon : false;
         userPosition = { lat, lng, accuracy: pos.coords.accuracy, heading: pos.coords.heading, speed };
+        currentAltitude = pos.coords.altitude;
+        currentHeading = pos.coords.heading;
         let displayLat = lat, displayLng = lng;
         if (isNavigating && routeData) {
             const snap = snapToRoute(lat, lng);
@@ -1081,7 +1066,15 @@
             }
         }
         updateSpeedDisplay(speed);
-        checkAutoNightMode();
+        // Feature 4: Auto night mode check
+        if (settings.autoNightMap) checkAutoNightMode(lat, lng);
+        // Feature 5: Trip recording
+        if (isNavigating && currentTrip) {
+            tripPositions.push({ lat, lng, speed: speed || 0, timestamp: Date.now() });
+            if (speed && speed > tripMaxSpeed) tripMaxSpeed = speed;
+        }
+        // Feature 13: Weather update
+        updateWeatherIfNeeded(lat, lng);
     }
 
     function updateSpeedDisplay(speed) {
@@ -1272,17 +1265,23 @@
         waypoints.forEach(wp => locations.push({ lat: wp.lat, lon: wp.lon }));
         locations.push({ lat: destination.lat, lon: destination.lon });
         const body = { locations, costing, alternates: waypoints.length === 0 ? 2 : 0, units: 'km', language: 'fr-FR' };
-        const needsCostingOpts = settings.avoidMotorway || settings.avoidToll || settings.avoidFerry ||
-            settings.vehicleProfile?.height || settings.vehicleProfile?.weight || settings.vehicleProfile?.width || settings.vehicleProfile?.length;
-        if (needsCostingOpts) {
+        if (settings.avoidMotorway || settings.avoidToll || settings.avoidFerry) {
             body.costing_options = { [costing]: {} };
             if (settings.avoidMotorway) body.costing_options[costing].use_highways = 0;
             if (settings.avoidToll) body.costing_options[costing].use_tolls = 0;
             if (settings.avoidFerry) body.costing_options[costing].use_ferry = 0;
-            if (settings.vehicleProfile?.height) body.costing_options[costing].height = parseFloat(settings.vehicleProfile.height);
-            if (settings.vehicleProfile?.weight) body.costing_options[costing].weight = parseFloat(settings.vehicleProfile.weight);
-            if (settings.vehicleProfile?.width) body.costing_options[costing].width = parseFloat(settings.vehicleProfile.width);
-            if (settings.vehicleProfile?.length) body.costing_options[costing].length_ = parseFloat(settings.vehicleProfile.length);
+        }
+        // Feature 14: Vehicle profile
+        if (costing === 'auto' && settings.vehicleProfile) {
+            const vp = settings.vehicleProfile;
+            if (vp.height || vp.weight || vp.width || vp.length) {
+                if (!body.costing_options) body.costing_options = {};
+                if (!body.costing_options[costing]) body.costing_options[costing] = {};
+                if (vp.height) body.costing_options[costing].height = vp.height;
+                if (vp.weight) body.costing_options[costing].weight = vp.weight;
+                if (vp.width) body.costing_options[costing].width = vp.width;
+                if (vp.length) body.costing_options[costing].length = vp.length;
+            }
         }
         if (routeAbortController) routeAbortController.abort();
         routeAbortController = new AbortController();
@@ -1387,6 +1386,8 @@
         renderWaypoints();
         $transportModes.classList.remove('hidden');
         $navPanel.classList.remove('hidden');
+        // Feature 13: Show weather at destination
+        fetchDestinationWeather();
     }
 
     function calculateETA(sec) {
@@ -1406,8 +1407,12 @@
         if (settings.showSpeed) $speedDisplay.classList.remove('hidden');
         if ('wakeLock' in navigator) navigator.wakeLock.request('screen').catch(() => {});
         speakStep(0);
+        // Feature 5: Start trip recording
         startTripRecording();
-        if (settings.dashboardItems?.length) $navDashboard.classList.remove('hidden');
+        // Feature 8: Start radar alerts
+        if (settings.radarAlerts) startRadarAlerts();
+        // Feature 10: Show dashboard
+        updateDashboard();
     }
 
     function stopNavigation() {
@@ -1427,10 +1432,14 @@
         $transportModes.classList.add('hidden'); $searchInput.value = ''; $searchClear.classList.add('hidden');
         destination = null; routeData = null; routeSteps = []; allRoutes = []; currentSpeedLimit = null;
         if (rerouteTimeout) { clearTimeout(rerouteTimeout); rerouteTimeout = null; }
+        // Feature 5: Stop trip recording
         stopTripRecording();
-        clearRadarMarkers();
-        if (radarQueryTimeout) { clearTimeout(radarQueryTimeout); radarQueryTimeout = null; }
-        $navDashboard.classList.add('hidden');
+        // Feature 7: Stop simulation if running
+        if (isSimulating) stopSimulation();
+        // Feature 8: Stop radar alerts
+        stopRadarAlerts();
+        // Feature 10: Hide dashboard
+        hideDashboard();
     }
 
     function updateNavigation(pos) {
@@ -1455,12 +1464,10 @@
         if (settings.autoReroute) checkOffRoute(userLat, userLng);
         // 7. Speed limit
         fetchSpeedLimit(userLat, userLng);
-        // 8. Radar alerts
-        if (settings.radarAlerts) fetchRadarsNearby(userLat, userLng);
-        // 9. Dashboard
-        updateDashboard(pos);
-        // 10. Trip recording
-        recordTripPoint(pos);
+        // Feature 8: Check radars
+        if (settings.radarAlerts) checkRadarProximity(userLat, userLng);
+        // Feature 10: Update dashboard
+        updateDashboard();
         // Check arrival
         const destDist = haversine(userLat, userLng, destination.lat, destination.lon);
         if (destDist < 30) {
@@ -1810,62 +1817,214 @@
     function showLoading() { $loading.classList.remove('hidden'); }
     function hideLoading() { $loading.classList.add('hidden'); }
 
-    // ===== MARKER CLUSTERING =====
-    function initPoiClusterGroup() {
-        if (typeof L.markerClusterGroup === 'function') {
-            poiClusterGroup = L.markerClusterGroup({ maxClusterRadius: 50 });
-            map.addLayer(poiClusterGroup);
+    // =========================================================
+    // ===== NEW FEATURES =====
+    // =========================================================
+
+    // ===== FEATURE 1: ISOCHRONES (Valhalla /isochrone) =====
+    function setupIsochroneEvents() {
+        if (!$isochroneBtn) return;
+        $isochroneBtn.addEventListener('click', showIsochroneDialog);
+    }
+
+    function showIsochroneDialog() {
+        if (!userPosition) { showToast('Position non disponible', 'error'); return; }
+        // Create a simple popup to choose time
+        const existing = document.getElementById('isochrone-dialog');
+        if (existing) existing.remove();
+        const dialog = document.createElement('div');
+        dialog.id = 'isochrone-dialog';
+        dialog.className = 'mapsi-modal';
+        dialog.innerHTML = `
+            <div class="modal-content" style="max-width:280px">
+                <div class="modal-header">
+                    <span>Isochrones</span>
+                    <button id="isochrone-dialog-close" aria-label="Fermer">&times;</button>
+                </div>
+                <div class="modal-body" style="display:flex;flex-direction:column;gap:8px">
+                    <button class="iso-time-btn" data-minutes="15" style="padding:12px;border-radius:8px;background:#30d158;color:#fff;border:none;font-size:15px;cursor:pointer">15 minutes</button>
+                    <button class="iso-time-btn" data-minutes="30" style="padding:12px;border-radius:8px;background:#ff9f0a;color:#fff;border:none;font-size:15px;cursor:pointer">30 minutes</button>
+                    <button class="iso-time-btn" data-minutes="60" style="padding:12px;border-radius:8px;background:#ff3b30;color:#fff;border:none;font-size:15px;cursor:pointer">60 minutes</button>
+                    <button id="iso-all-btn" style="padding:12px;border-radius:8px;background:var(--primary);color:#fff;border:none;font-size:15px;cursor:pointer">Tout afficher</button>
+                    ${isochroneLayer ? '<button id="iso-clear-btn" style="padding:12px;border-radius:8px;background:var(--danger);color:#fff;border:none;font-size:15px;cursor:pointer">Effacer</button>' : ''}
+                </div>
+            </div>
+        `;
+        document.body.appendChild(dialog);
+        dialog.querySelector('#isochrone-dialog-close').addEventListener('click', () => dialog.remove());
+        dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.remove(); });
+        dialog.querySelectorAll('.iso-time-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                dialog.remove();
+                fetchIsochrone([parseInt(btn.dataset.minutes)]);
+            });
+        });
+        const allBtn = dialog.querySelector('#iso-all-btn');
+        if (allBtn) allBtn.addEventListener('click', () => { dialog.remove(); fetchIsochrone([15, 30, 60]); });
+        const clearBtn = dialog.querySelector('#iso-clear-btn');
+        if (clearBtn) clearBtn.addEventListener('click', () => { dialog.remove(); clearIsochrone(); });
+    }
+
+    async function fetchIsochrone(times) {
+        if (!userPosition) return;
+        showLoading();
+        clearIsochrone();
+        const contours = times.map(t => ({ time: t }));
+        const body = {
+            locations: [{ lat: userPosition.lat, lon: userPosition.lng }],
+            costing: 'auto',
+            contours,
+            polygons: true
+        };
+        try {
+            const resp = await fetch(`${VALHALLA_URL}/isochrone`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const geojson = await resp.json();
+            hideLoading();
+            displayIsochrone(geojson, times);
+        } catch (e) {
+            hideLoading();
+            showToast('Erreur lors du calcul des isochrones', 'error');
+            console.warn('Isochrone error:', e);
         }
     }
 
-    function addPoiMarker(marker) {
-        if (poiClusterGroup) poiClusterGroup.addLayer(marker);
-        else marker.addTo(map);
-        poiMarkers.push(marker);
+    function displayIsochrone(geojson, times) {
+        const colors = { 15: '#30d158', 30: '#ff9f0a', 60: '#ff3b30' };
+        const defaultColors = ['#30d158', '#ff9f0a', '#ff3b30'];
+        isochroneLayer = L.geoJSON(geojson, {
+            style: function(feature) {
+                const contour = feature.properties?.contour;
+                const color = colors[contour] || defaultColors[0];
+                return { color, fillColor: color, fillOpacity: 0.15, weight: 2, opacity: 0.7 };
+            }
+        }).addTo(map);
+        map.fitBounds(isochroneLayer.getBounds(), { padding: [40, 40] });
     }
 
-    // ===== 1. ISOCHRONES =====
-    function setupIsochroneEvents() {
-        if (!$isochroneBtn) return;
-        $isochroneBtn.addEventListener('click', () => {
-            if (!userPosition) { showToast('Activez la localisation', 'error'); return; }
-            $isochroneModal.classList.remove('hidden');
-        });
-        $isochroneModalClose.addEventListener('click', () => $isochroneModal.classList.add('hidden'));
-        $isochroneModal.addEventListener('click', e => { if (e.target === $isochroneModal) $isochroneModal.classList.add('hidden'); });
-        document.querySelectorAll('.iso-time-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.iso-time-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-            });
-        });
-        document.querySelectorAll('.iso-mode-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.iso-mode-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-            });
-        });
-        $isochroneCalcBtn.addEventListener('click', calculateIsochrone);
+    function clearIsochrone() {
+        if (isochroneLayer) {
+            map.removeLayer(isochroneLayer);
+            isochroneLayer = null;
+        }
     }
 
-    async function calculateIsochrone() {
-        if (!userPosition) return;
-        const activeTimes = document.querySelectorAll('.iso-time-btn.active');
-        const activeMode = document.querySelector('.iso-mode-btn.active');
-        const times = [];
-        activeTimes.forEach(btn => times.push(parseInt(btn.dataset.minutes)));
-        if (times.length === 0) times.push(15);
-        const costing = activeMode?.dataset.mode || 'auto';
+    // ===== FEATURE 2: EXPORT/IMPORT GPX =====
+    function setupGPXEvents() {
+        const exportBtn = $('nav-gpx-export');
+        const importInput = $('gpx-import-input');
+        if (exportBtn) {
+            exportBtn.addEventListener('click', exportGPX);
+        }
+        if (importInput) {
+            importInput.addEventListener('change', importGPX);
+        }
+    }
+
+    function exportGPX() {
+        if (!routeData || !routeData.geometry || !routeData.geometry.coordinates || routeData.geometry.coordinates.length === 0) {
+            showToast('Aucun itineraire a exporter', 'error');
+            return;
+        }
+        const coords = routeData.geometry.coordinates;
+        let trkpts = '';
+        coords.forEach(c => {
+            trkpts += `      <trkpt lat="${c[1]}" lon="${c[0]}"></trkpt>\n`;
+        });
+        const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="MapsI PWA"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>${escapeHtml(destination?.name || 'Itineraire MapsI')}</name>
+    <trkseg>
+${trkpts}    </trkseg>
+  </trk>
+</gpx>`;
+        const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `mapsi_route_${Date.now()}.gpx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('GPX exporte !', 'success');
+    }
+
+    function importGPX(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(ev) {
+            try {
+                const parser = new DOMParser();
+                const xml = parser.parseFromString(ev.target.result, 'text/xml');
+                const trkpts = xml.querySelectorAll('trkpt');
+                if (trkpts.length === 0) {
+                    showToast('Aucun point trouve dans le fichier GPX', 'error');
+                    return;
+                }
+                const coords = [];
+                trkpts.forEach(pt => {
+                    const lat = parseFloat(pt.getAttribute('lat'));
+                    const lon = parseFloat(pt.getAttribute('lon'));
+                    if (!isNaN(lat) && !isNaN(lon)) coords.push([lat, lon]);
+                });
+                if (coords.length < 2) {
+                    showToast('Pas assez de points dans le GPX', 'error');
+                    return;
+                }
+                // Draw imported track on map
+                if (tripLayer) { map.removeLayer(tripLayer); tripLayer = null; }
+                tripLayer = L.polyline(coords, { color: '#ff9f0a', weight: 4, opacity: 0.8 }).addTo(map);
+                map.fitBounds(tripLayer.getBounds(), { padding: [40, 40] });
+                showToast(`GPX importe: ${coords.length} points`, 'success');
+            } catch (err) {
+                showToast('Erreur lors de l\'import GPX', 'error');
+            }
+        };
+        reader.readAsText(file);
+        // Reset input for re-import
+        e.target.value = '';
+    }
+
+    // ===== FEATURE 3: WAYPOINT ORDER OPTIMIZATION =====
+    function setupOptimizeWaypointsEvents() {
+        const optimizeBtn = $('optimize-waypoints-btn');
+        if (optimizeBtn) {
+            optimizeBtn.addEventListener('click', optimizeWaypointOrder);
+        }
+    }
+
+    async function optimizeWaypointOrder() {
+        if (waypoints.length < 2) {
+            showToast('Il faut au moins 2 etapes pour optimiser', 'info');
+            return;
+        }
+        if (waypoints.length >= 10) {
+            showToast('Maximum 9 etapes pour l\'optimisation', 'error');
+            return;
+        }
         showLoading();
-        $isochroneModal.classList.add('hidden');
+        const costing = transportMode === 'walking' ? 'pedestrian' : transportMode === 'cycling' ? 'bicycle' : 'auto';
+        // Build locations: origin + waypoints + destination
+        const allLocs = [];
+        if (userPosition) allLocs.push({ lat: userPosition.lat, lon: userPosition.lng });
+        waypoints.forEach(wp => allLocs.push({ lat: wp.lat, lon: wp.lon }));
+        if (destination) allLocs.push({ lat: destination.lat, lon: destination.lon });
+
         try {
             const body = {
-                locations: [{ lat: userPosition.lat, lon: userPosition.lng }],
-                costing,
-                contours: times.map(t => ({ time: t })),
-                polygons: true
+                sources: allLocs.map(l => ({ lat: l.lat, lon: l.lon })),
+                targets: allLocs.map(l => ({ lat: l.lat, lon: l.lon })),
+                costing
             };
-            const resp = await fetch(`${VALHALLA_URL}/isochrone`, {
+            const resp = await fetch(`${VALHALLA_URL}/sources_to_targets`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
@@ -1873,459 +2032,809 @@
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             hideLoading();
-            if (isochroneLayer) { map.removeLayer(isochroneLayer); isochroneLayer = null; }
-            const colors = ['rgba(48,209,88,0.3)', 'rgba(255,159,10,0.3)', 'rgba(255,69,58,0.3)'];
-            isochroneLayer = L.geoJSON(data, {
-                style: (feature) => {
-                    const idx = feature.properties?.contour ? times.indexOf(feature.properties.contour) : 0;
-                    return { fillColor: colors[idx] || colors[0], color: colors[idx]?.replace('0.3', '0.8') || '#30d158', weight: 2, fillOpacity: 0.3 };
-                }
-            }).addTo(map);
-            map.fitBounds(isochroneLayer.getBounds(), { padding: [40, 40] });
-        } catch (e) {
-            hideLoading();
-            showToast('Erreur isochrone', 'error');
-        }
-    }
-
-    // ===== 2. GPX EXPORT/IMPORT =====
-    function setupGPXEvents() {
-        if (!$navGpxBtn) return;
-        $navGpxBtn.addEventListener('click', () => $gpxModal.classList.remove('hidden'));
-        $gpxModalClose.addEventListener('click', () => $gpxModal.classList.add('hidden'));
-        $gpxModal.addEventListener('click', e => { if (e.target === $gpxModal) $gpxModal.classList.add('hidden'); });
-        $gpxExportBtn.addEventListener('click', exportGPX);
-        $gpxImportBtn.addEventListener('click', () => { $gpxModal.classList.add('hidden'); $gpxImportInput.click(); });
-        $gpxImportInput.addEventListener('change', importGPX);
-    }
-
-    function exportGPX() {
-        if (!routeData?.geometry?.coordinates) { showToast('Aucun itineraire a exporter', 'error'); return; }
-        const coords = routeData.geometry.coordinates;
-        let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="MapsI">\n  <trk>\n    <name>Itineraire MapsI</name>\n    <trkseg>\n`;
-        coords.forEach(c => { gpx += `      <trkpt lat="${c[1]}" lon="${c[0]}"></trkpt>\n`; });
-        gpx += `    </trkseg>\n  </trk>\n</gpx>`;
-        const blob = new Blob([gpx], { type: 'application/gpx+xml' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = 'mapsi-route.gpx'; a.click();
-        URL.revokeObjectURL(url);
-        $gpxModal.classList.add('hidden');
-        showToast('GPX exporte', 'success');
-    }
-
-    function importGPX(e) {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            try {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(ev.target.result, 'text/xml');
-                const trkpts = doc.querySelectorAll('trkpt');
-                if (trkpts.length === 0) { showToast('Aucun point dans le GPX', 'error'); return; }
-                const coords = [];
-                trkpts.forEach(pt => coords.push([parseFloat(pt.getAttribute('lat')), parseFloat(pt.getAttribute('lon'))]));
-                if (gpxImportLayer) map.removeLayer(gpxImportLayer);
-                gpxImportLayer = L.polyline(coords, { color: '#ff9f0a', weight: 4, dashArray: '8,4' }).addTo(map);
-                map.fitBounds(gpxImportLayer.getBounds(), { padding: [40, 40] });
-                showToast(`${trkpts.length} points importes`, 'success');
-            } catch (err) { showToast('Erreur lecture GPX', 'error'); }
-        };
-        reader.readAsText(file);
-        e.target.value = '';
-    }
-
-    // ===== 3. WAYPOINT OPTIMIZATION =====
-    function renderWaypointsOptimizeBtn() {
-        if ($optimizeWaypointsBtn) {
-            $optimizeWaypointsBtn.classList.toggle('hidden', waypoints.length < 2);
-        }
-    }
-
-    async function optimizeWaypointOrder() {
-        if (waypoints.length < 2 || !userPosition || !destination) return;
-        showLoading();
-        const locs = [
-            { lat: userPosition.lat, lon: userPosition.lng },
-            ...waypoints.map(wp => ({ lat: wp.lat, lon: wp.lon })),
-            { lat: destination.lat, lon: destination.lon }
-        ];
-        const costing = transportMode === 'walking' ? 'pedestrian' : transportMode === 'cycling' ? 'bicycle' : 'auto';
-        try {
-            const resp = await fetch(`${VALHALLA_URL}/sources_to_targets`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sources: locs, targets: locs, costing })
-            });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const data = await resp.json();
             const matrix = data.sources_to_targets;
-            const n = waypoints.length;
-            // Nearest-neighbor heuristic for waypoints (indices 1..n, start=0, end=n+1)
-            const visited = new Set();
-            const order = [];
-            let current = 0; // start
-            for (let step = 0; step < n; step++) {
-                let bestDist = Infinity, bestIdx = -1;
-                for (let j = 1; j <= n; j++) {
-                    if (visited.has(j)) continue;
-                    const d = matrix[current]?.[j]?.time ?? Infinity;
-                    if (d < bestDist) { bestDist = d; bestIdx = j; }
+            if (!matrix) { showToast('Erreur de matrice de distances', 'error'); return; }
+
+            // Extract distance matrix
+            const n = allLocs.length;
+            const dist = [];
+            for (let i = 0; i < n; i++) {
+                dist[i] = [];
+                for (let j = 0; j < n; j++) {
+                    dist[i][j] = matrix[i][j]?.distance ?? Infinity;
                 }
-                if (bestIdx === -1) break;
-                visited.add(bestIdx);
-                order.push(bestIdx - 1); // waypoint index
-                current = bestIdx;
             }
-            waypoints = order.map(i => waypoints[i]);
-            hideLoading();
+
+            // Optimize: origin is index 0, destination is index n-1, optimize middle indices
+            const waypointIndices = [];
+            for (let i = 1; i < n - 1; i++) waypointIndices.push(i);
+
+            let bestOrder;
+            if (waypointIndices.length <= 7) {
+                // Brute force permutation
+                bestOrder = bruteForceOptimize(dist, waypointIndices, 0, n - 1);
+            } else {
+                // Nearest neighbor heuristic
+                bestOrder = nearestNeighborOptimize(dist, waypointIndices, 0, n - 1);
+            }
+
+            // Reorder waypoints
+            const newWaypoints = bestOrder.map(idx => waypoints[idx - 1]);
+            waypoints = newWaypoints;
+            // Reorder markers
+            const newMarkers = bestOrder.map(idx => waypointMarkers[idx - 1]);
+            waypointMarkers.forEach(m => map.removeLayer(m));
+            waypointMarkers = [];
+            newMarkers.forEach((m, i) => {
+                if (m) {
+                    const icon = L.divIcon({
+                        className: 'destination-marker',
+                        html: '<svg viewBox="0 0 24 36"><circle cx="12" cy="12" r="10" fill="#ff9f0a" stroke="white" stroke-width="3"/><text x="12" y="16" text-anchor="middle" fill="white" font-size="12" font-weight="bold">' + (i + 1) + '</text></svg>',
+                        iconSize: [32, 40], iconAnchor: [16, 40]
+                    });
+                    m.setIcon(icon);
+                    m.addTo(map);
+                    waypointMarkers.push(m);
+                }
+            });
+            renderWaypoints();
             calculateRoute();
-            showToast('Ordre optimise', 'success');
+            showToast('Etapes optimisees !', 'success');
         } catch (e) {
             hideLoading();
-            showToast('Erreur optimisation', 'error');
+            showToast('Erreur lors de l\'optimisation', 'error');
+            console.warn('Optimize error:', e);
         }
     }
 
-    // ===== 4. AUTO NIGHT MODE (SunCalc) =====
-    function getSunTimes(date, lat, lng) {
-        const RAD = Math.PI / 180, DEG = 180 / Math.PI;
-        const daysSince2000 = (date.getTime() / 86400000) - 10957.5;
-        const M = (357.5291 + 0.98560028 * daysSince2000) * RAD;
-        const C = (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M)) * RAD;
-        const L = (M * DEG + 102.9372 + C * DEG + 180) % 360 * RAD;
-        const decl = Math.asin(Math.sin(L) * Math.sin(23.4393 * RAD));
-        const Jnoon = 2451545 + daysSince2000 + 0.0053 * Math.sin(M) - 0.0069 * Math.sin(2 * L) - lng / 360;
-        const cosH = (Math.sin(-0.833 * RAD) - Math.sin(lat * RAD) * Math.sin(decl)) / (Math.cos(lat * RAD) * Math.cos(decl));
-        if (cosH > 1 || cosH < -1) return { sunrise: null, sunset: null };
-        const H = Math.acos(cosH) * DEG / 360;
-        const sunriseJD = Jnoon - H;
-        const sunsetJD = Jnoon + H;
-        const jdToDate = jd => new Date((jd - 2440587.5) * 86400000);
-        return { sunrise: jdToDate(sunriseJD), sunset: jdToDate(sunsetJD) };
+    function bruteForceOptimize(dist, indices, startIdx, endIdx) {
+        const perms = permutations(indices);
+        let bestCost = Infinity;
+        let bestPerm = indices;
+        for (const perm of perms) {
+            let cost = dist[startIdx][perm[0]];
+            for (let i = 0; i < perm.length - 1; i++) {
+                cost += dist[perm[i]][perm[i + 1]];
+            }
+            cost += dist[perm[perm.length - 1]][endIdx];
+            if (cost < bestCost) { bestCost = cost; bestPerm = perm; }
+        }
+        return bestPerm;
     }
 
-    function checkAutoNightMode() {
-        if (!settings.autoNightMap || !userPosition) return;
+    function permutations(arr) {
+        if (arr.length <= 1) return [arr];
+        const result = [];
+        for (let i = 0; i < arr.length; i++) {
+            const rest = [...arr.slice(0, i), ...arr.slice(i + 1)];
+            for (const perm of permutations(rest)) {
+                result.push([arr[i], ...perm]);
+            }
+        }
+        return result;
+    }
+
+    function nearestNeighborOptimize(dist, indices, startIdx, endIdx) {
+        const remaining = new Set(indices);
+        const order = [];
+        let current = startIdx;
+        while (remaining.size > 0) {
+            let nearest = null, nearestDist = Infinity;
+            for (const idx of remaining) {
+                if (dist[current][idx] < nearestDist) {
+                    nearestDist = dist[current][idx];
+                    nearest = idx;
+                }
+            }
+            if (nearest === null) break;
+            order.push(nearest);
+            remaining.delete(nearest);
+            current = nearest;
+        }
+        return order;
+    }
+
+    // ===== FEATURE 4: AUTO NIGHT MODE (SunCalc inline) =====
+    function getSunTimes(date, lat, lng) {
+        // Solar position calculation (simplified but accurate enough)
+        const rad = Math.PI / 180;
+        const dayMs = 1000 * 60 * 60 * 24;
+        const J0 = 2451545; // Julian date for Jan 1 2000 12:00 UTC
+        const J1970 = 2440588;
+
+        function toJulian(d) { return d.valueOf() / dayMs - 0.5 + J1970; }
+        function fromJulian(j) { return new Date((j + 0.5 - J1970) * dayMs); }
+        function toDays(d) { return toJulian(d) - J0; }
+
+        function solarMeanAnomaly(d) { return rad * (357.5291 + 0.98560028 * d); }
+        function eclipticLongitude(M) {
+            const C = rad * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
+            const P = rad * 102.9372;
+            return M + C + P + Math.PI;
+        }
+        function declination(l) { return Math.asin(Math.sin(l) * Math.sin(rad * 23.4397)); }
+        function rightAscension(l) { return Math.atan2(Math.sin(l) * Math.cos(rad * 23.4397), Math.cos(l)); }
+
+        function julianCycle(d, lw) { return Math.round(d - 0.0009 - lw / (2 * Math.PI)); }
+        function approxTransit(Ht, lw, n) { return 0.0009 + (Ht + lw) / (2 * Math.PI) + n; }
+        function solarTransitJ(ds, M, L) { return J0 + ds + 0.0053 * Math.sin(M) - 0.0069 * Math.sin(2 * L); }
+
+        function hourAngle(h, phi, dec) {
+            const cosH = (Math.sin(h) - Math.sin(phi) * Math.sin(dec)) / (Math.cos(phi) * Math.cos(dec));
+            if (cosH > 1) return 0; // Sun never rises
+            if (cosH < -1) return Math.PI; // Sun never sets
+            return Math.acos(cosH);
+        }
+
+        function getSetJ(h, lw, phi, dec, n, M, L) {
+            const w = hourAngle(h, phi, dec);
+            const a = approxTransit(w, lw, n);
+            return solarTransitJ(a, M, L);
+        }
+
+        const lw = rad * -lng;
+        const phi = rad * lat;
+        const d = toDays(date);
+        const n = julianCycle(d, lw);
+        const ds = approxTransit(0, lw, n);
+        const M = solarMeanAnomaly(ds);
+        const L = eclipticLongitude(M);
+        const dec = declination(L);
+
+        // Sunrise/sunset angle: -0.833 degrees (standard refraction)
+        const h0 = rad * -0.833;
+        const Jset = getSetJ(h0, lw, phi, dec, n, M, L);
+        const Jnoon = solarTransitJ(ds, M, L);
+        const Jrise = Jnoon - (Jset - Jnoon);
+
+        return {
+            sunrise: fromJulian(Jrise),
+            sunset: fromJulian(Jset)
+        };
+    }
+
+    function checkAutoNightMode(lat, lng) {
+        if (!settings.autoNightMap) return;
         const now = new Date();
-        const sun = getSunTimes(now, userPosition.lat, userPosition.lng);
-        if (!sun.sunrise || !sun.sunset) return;
-        const isNight = now < sun.sunrise || now > sun.sunset;
+        const sunTimes = getSunTimes(now, lat, lng);
+        const isNight = now < sunTimes.sunrise || now > sunTimes.sunset;
         if (isNight && settings.mapStyle !== 'sombre') {
-            previousMapStyle = settings.mapStyle;
+            previousDayStyle = settings.mapStyle;
             settings.mapStyle = 'sombre';
             changeMapStyle('sombre');
             if ($mapStyleSelect) $mapStyleSelect.value = 'sombre';
-        } else if (!isNight && previousMapStyle && settings.mapStyle === 'sombre') {
-            settings.mapStyle = previousMapStyle;
-            changeMapStyle(previousMapStyle);
-            if ($mapStyleSelect) $mapStyleSelect.value = previousMapStyle;
-            previousMapStyle = null;
+        } else if (!isNight && previousDayStyle && settings.mapStyle === 'sombre') {
+            settings.mapStyle = previousDayStyle;
+            changeMapStyle(previousDayStyle);
+            if ($mapStyleSelect) $mapStyleSelect.value = previousDayStyle;
+            previousDayStyle = null;
         }
     }
 
-    // ===== 5. TRIP HISTORY (IndexedDB) =====
-    function setupTripsDB() {
-        if (!window.indexedDB) return;
-        const req = indexedDB.open(TRIPS_DB, 1);
-        req.onupgradeneeded = e => {
-            const db = e.target.result;
-            if (!db.objectStoreNames.contains(TRIPS_STORE)) {
-                db.createObjectStore(TRIPS_STORE, { keyPath: 'id', autoIncrement: true });
-            }
-        };
-        req.onsuccess = e => { tripsDb = e.target.result; renderTrips(); };
-        req.onerror = () => {};
+    function setupAutoNightSettings() {
+        const toggle = $('auto-night-toggle');
+        if (toggle) {
+            toggle.checked = settings.autoNightMap;
+            toggle.addEventListener('change', () => {
+                settings.autoNightMap = toggle.checked;
+                if (!toggle.checked && previousDayStyle) {
+                    settings.mapStyle = previousDayStyle;
+                    changeMapStyle(previousDayStyle);
+                    if ($mapStyleSelect) $mapStyleSelect.value = previousDayStyle;
+                    previousDayStyle = null;
+                }
+                saveSettings();
+            });
+        }
+    }
+
+    // ===== FEATURE 5: TRIP HISTORY (IndexedDB) =====
+    function initTripsDB() {
+        try {
+            const request = indexedDB.open(TRIPS_DB, 1);
+            request.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(TRIPS_STORE)) {
+                    db.createObjectStore(TRIPS_STORE, { keyPath: 'id' });
+                }
+            };
+            request.onsuccess = (e) => {
+                tripDB = e.target.result;
+            };
+            request.onerror = () => { console.warn('IndexedDB not available for trip history'); };
+        } catch (e) {
+            console.warn('IndexedDB error:', e);
+        }
     }
 
     function startTripRecording() {
-        if (!tripsDb) return;
-        tripRecording = {
-            startTime: Date.now(),
-            from: userPosition ? `${userPosition.lat.toFixed(4)},${userPosition.lng.toFixed(4)}` : '',
-            to: destination ? (destination.name || '') : '',
-            positions: [],
-            maxSpeed: 0
+        if (!destination) return;
+        tripPositions = [];
+        tripMaxSpeed = 0;
+        currentTrip = {
+            id: Date.now(),
+            date: new Date().toISOString(),
+            from: userPosition ? `${userPosition.lat.toFixed(4)},${userPosition.lng.toFixed(4)}` : 'Inconnu',
+            to: destination.name || `${destination.lat.toFixed(4)},${destination.lon.toFixed(4)}`,
+            startTime: Date.now()
         };
-    }
-
-    function recordTripPoint(pos) {
-        if (!tripRecording) return;
-        const speed = pos.coords.speed != null ? pos.coords.speed * 3.6 : 0;
-        tripRecording.positions.push({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            speed,
-            timestamp: Date.now()
-        });
-        if (speed > tripRecording.maxSpeed) tripRecording.maxSpeed = speed;
     }
 
     function stopTripRecording() {
-        if (!tripRecording || !tripsDb || tripRecording.positions.length < 2) { tripRecording = null; return; }
+        if (!currentTrip || tripPositions.length < 2) { currentTrip = null; tripPositions = []; return; }
         const endTime = Date.now();
-        const duration = (endTime - tripRecording.startTime) / 1000;
-        let distance = 0;
-        for (let i = 1; i < tripRecording.positions.length; i++) {
-            distance += haversine(tripRecording.positions[i - 1].lat, tripRecording.positions[i - 1].lng,
-                tripRecording.positions[i].lat, tripRecording.positions[i].lng);
+        const durationSec = (endTime - currentTrip.startTime) / 1000;
+        let totalDist = 0;
+        for (let i = 1; i < tripPositions.length; i++) {
+            totalDist += haversine(tripPositions[i - 1].lat, tripPositions[i - 1].lng, tripPositions[i].lat, tripPositions[i].lng);
         }
-        const avgSpeed = duration > 0 ? (distance / 1000) / (duration / 3600) : 0;
+        const avgSpeed = durationSec > 0 ? (totalDist / durationSec) * 3.6 : 0;
         const trip = {
-            date: new Date().toISOString(),
-            from: tripRecording.from,
-            to: tripRecording.to,
-            distance,
-            duration,
-            avgSpeed: Math.round(avgSpeed),
-            maxSpeed: Math.round(tripRecording.maxSpeed),
-            positions: tripRecording.positions.filter((_, i) => i % 5 === 0) // keep 1 in 5 for storage
+            ...currentTrip,
+            distance: totalDist,
+            duration: durationSec,
+            avgSpeed: Math.round(avgSpeed * 10) / 10,
+            maxSpeed: Math.round(tripMaxSpeed * 3.6),
+            positions: tripPositions.slice() // copy
         };
-        const tx = tripsDb.transaction(TRIPS_STORE, 'readwrite');
-        tx.objectStore(TRIPS_STORE).add(trip);
-        tx.oncomplete = () => renderTrips();
-        tripRecording = null;
+        saveTripToDB(trip);
+        currentTrip = null;
+        tripPositions = [];
+        tripMaxSpeed = 0;
     }
 
-    function renderTrips() {
-        if (!tripsDb || !$tripsList) return;
-        const tx = tripsDb.transaction(TRIPS_STORE, 'readonly');
-        const store = tx.objectStore(TRIPS_STORE);
-        const req = store.getAll();
-        req.onsuccess = () => {
-            const trips = req.result.sort((a, b) => new Date(b.date) - new Date(a.date));
-            if (trips.length === 0) {
-                $tripsList.innerHTML = '';
-                if ($tripsEmpty) $tripsEmpty.classList.remove('hidden');
+    function saveTripToDB(trip) {
+        if (!tripDB) return;
+        try {
+            const tx = tripDB.transaction(TRIPS_STORE, 'readwrite');
+            tx.objectStore(TRIPS_STORE).put(trip);
+        } catch (e) { console.warn('Error saving trip:', e); }
+    }
+
+    function getAllTrips(callback) {
+        if (!tripDB) { callback([]); return; }
+        try {
+            const tx = tripDB.transaction(TRIPS_STORE, 'readonly');
+            const store = tx.objectStore(TRIPS_STORE);
+            const req = store.getAll();
+            req.onsuccess = () => { callback(req.result || []); };
+            req.onerror = () => { callback([]); };
+        } catch (e) { callback([]); }
+    }
+
+    function deleteTripFromDB(id) {
+        if (!tripDB) return;
+        try {
+            const tx = tripDB.transaction(TRIPS_STORE, 'readwrite');
+            tx.objectStore(TRIPS_STORE).delete(id);
+        } catch (e) {}
+    }
+
+    function setupTripHistoryUI() {
+        // The trip history section is rendered dynamically in search-view
+    }
+
+    function renderTripHistory() {
+        const container = $('trip-history-list');
+        if (!container) return;
+        getAllTrips(trips => {
+            if (!trips || trips.length === 0) {
+                container.innerHTML = '<div style="padding:12px;color:var(--text-secondary);font-size:14px;text-align:center">Aucun trajet enregistre</div>';
                 return;
             }
-            if ($tripsEmpty) $tripsEmpty.classList.add('hidden');
-            $tripsList.innerHTML = trips.slice(0, 20).map(t => {
-                const d = new Date(t.date);
-                const dateStr = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-                return `<div class="trip-item" data-id="${t.id}">
-                    <div class="trip-icon"><svg viewBox="0 0 24 24"><path d="M3 12h18M13 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
-                    <div class="trip-text">
-                        <div class="trip-name">${escapeHtml(t.to || 'Trajet')}</div>
-                        <div class="trip-details">${dateStr} - ${formatDistance(t.distance)} - ${formatDuration(t.duration)}</div>
+            trips.sort((a, b) => b.id - a.id);
+            container.innerHTML = trips.slice(0, 20).map(trip => {
+                const dateStr = new Date(trip.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                return `<div class="history-item trip-history-item" data-trip-id="${trip.id}">
+                    <div class="history-icon"><svg viewBox="0 0 24 24"><path d="M9 2L4 5v15l5-3 6 3 5-3V2l-5 3-6-3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+                    <div class="history-text">
+                        <div class="history-name">${escapeHtml(trip.to)}</div>
+                        <div class="history-address">${dateStr} · ${formatDistance(trip.distance)} · ${formatDuration(trip.duration)}</div>
                     </div>
                 </div>`;
             }).join('');
-            $tripsList.querySelectorAll('.trip-item').forEach(el => {
-                el.addEventListener('click', () => showTrip(parseInt(el.dataset.id)));
+            container.querySelectorAll('.trip-history-item').forEach(el => {
+                el.addEventListener('click', () => {
+                    const tripId = parseInt(el.dataset.tripId);
+                    showTripOnMap(tripId);
+                });
+                // Long press to delete
+                let lpTimer = null;
+                el.addEventListener('touchstart', () => {
+                    lpTimer = setTimeout(() => {
+                        lpTimer = null;
+                        const tripId = parseInt(el.dataset.tripId);
+                        if (confirm('Supprimer ce trajet ?')) {
+                            deleteTripFromDB(tripId);
+                            renderTripHistory();
+                        }
+                    }, 600);
+                }, { passive: true });
+                el.addEventListener('touchend', () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } });
+                el.addEventListener('touchmove', () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } });
             });
-        };
-    }
-
-    function showTrip(id) {
-        if (!tripsDb) return;
-        const tx = tripsDb.transaction(TRIPS_STORE, 'readonly');
-        const req = tx.objectStore(TRIPS_STORE).get(id);
-        req.onsuccess = () => {
-            const trip = req.result;
-            if (!trip || !trip.positions.length) return;
-            switchView('map');
-            if (gpxImportLayer) map.removeLayer(gpxImportLayer);
-            const coords = trip.positions.map(p => [p.lat, p.lng]);
-            gpxImportLayer = L.polyline(coords, { color: '#5856d6', weight: 4 }).addTo(map);
-            map.fitBounds(gpxImportLayer.getBounds(), { padding: [40, 40] });
-            showToast(`Trajet du ${new Date(trip.date).toLocaleDateString('fr-FR')}`, 'info');
-        };
-    }
-
-    // ===== 7. ROUTE SIMULATION =====
-    function setupSimulationEvents() {
-        if (!$navSimulateBtn) return;
-        $navSimulateBtn.addEventListener('click', () => {
-            if (isSimulating) stopSimulation();
-            else startSimulation();
         });
     }
 
+    function showTripOnMap(tripId) {
+        getAllTrips(trips => {
+            const trip = trips.find(t => t.id === tripId);
+            if (!trip || !trip.positions || trip.positions.length < 2) {
+                showToast('Trajet introuvable', 'error');
+                return;
+            }
+            switchView('map');
+            if (tripLayer) { map.removeLayer(tripLayer); tripLayer = null; }
+            const coords = trip.positions.map(p => [p.lat, p.lng]);
+            tripLayer = L.polyline(coords, { color: '#5856d6', weight: 4, opacity: 0.8 }).addTo(map);
+            map.fitBounds(tripLayer.getBounds(), { padding: [40, 40] });
+            showToast(`Trajet vers ${escapeHtml(trip.to)}`, 'info');
+        });
+    }
+
+    // ===== FEATURE 6: MARKER CLUSTERING =====
+    function initMarkerCluster() {
+        try {
+            if (typeof L.markerClusterGroup === 'function') {
+                poiClusterGroup = L.markerClusterGroup({ maxClusterRadius: 50 });
+                map.addLayer(poiClusterGroup);
+            }
+        } catch (e) {
+            console.warn('MarkerCluster not available:', e);
+        }
+    }
+
+    // ===== FEATURE 7: ROUTE SIMULATION / ANIMATION =====
+    function setupSimulationEvents() {
+        const simBtn = $('nav-simulate-btn');
+        if (simBtn) {
+            simBtn.addEventListener('click', () => {
+                if (isSimulating) stopSimulation();
+                else startSimulation();
+            });
+        }
+    }
+
     function startSimulation() {
-        if (!routeData?.geometry?.coordinates || isNavigating) return;
+        if (!routeData || !routeData.geometry || !routeData.geometry.coordinates || routeData.geometry.coordinates.length < 2) {
+            showToast('Aucun itineraire a simuler', 'error');
+            return;
+        }
         isSimulating = true;
         simulationIndex = 0;
-        document.body.classList.add('simulating');
+        isNavigating = true;
+        currentStepIndex = 0;
+        lastSpokenStep = -1;
+        lastMatchedSegmentIndex = 0;
+        snappedPosition = null;
+
         $navPanel.classList.add('hidden');
         $transportModes.classList.add('hidden');
         $routeAlternatives.classList.add('hidden');
         $activeNav.classList.remove('hidden');
         $activeNavBottom.classList.remove('hidden');
-        $navSimulateBtn.textContent = 'Arreter';
+        $locateBtn.classList.add('nav-hidden');
+        document.body.classList.add('navigating');
+        clearAltRouteLayers();
+
+        const simBtn = $('nav-simulate-btn');
+        if (simBtn) simBtn.textContent = 'Stop Sim.';
+
         updateNavigationDisplay();
         animateSimulation();
     }
 
     function stopSimulation() {
         isSimulating = false;
-        document.body.classList.remove('simulating');
+        if (simulationFrame) { cancelAnimationFrame(simulationFrame); simulationFrame = null; }
+        if (simulationMarker) { map.removeLayer(simulationMarker); simulationMarker = null; }
+        const simBtn = $('nav-simulate-btn');
+        if (simBtn) simBtn.textContent = 'Simuler';
+        // Reset navigation state
+        isNavigating = false;
+        resetMapBearing();
         $activeNav.classList.add('hidden');
         $activeNavBottom.classList.add('hidden');
-        $navSimulateBtn.textContent = 'Simuler';
-        if (simulationFrame) { cancelAnimationFrame(simulationFrame); simulationFrame = null; }
+        $locateBtn.classList.remove('nav-hidden');
+        document.body.classList.remove('navigating');
     }
 
     function animateSimulation() {
-        if (!isSimulating || !routeData?.geometry?.coordinates) return;
+        if (!isSimulating || !routeData) return;
         const coords = routeData.geometry.coordinates;
-        if (simulationIndex >= coords.length) { stopSimulation(); showToast('Simulation terminee', 'info'); return; }
+        if (simulationIndex >= coords.length) {
+            showToast('Simulation terminee', 'success');
+            stopSimulation();
+            return;
+        }
         const c = coords[simulationIndex];
-        const lat = c[1], lng = c[0];
-        map.setView([lat, lng], NAV_ZOOM, { animate: true, duration: 0.1 });
-        // Update step tracking
-        for (let i = currentStepIndex; i < routeSteps.length; i++) {
-            const stepLoc = routeSteps[i].maneuver.location;
-            if (haversine(lat, lng, stepLoc[1], stepLoc[0]) < 50) {
-                currentStepIndex = Math.min(i + 1, routeSteps.length - 1);
+        const lat = c[1], lon = c[0];
+
+        // Update simulation marker
+        if (!simulationMarker) {
+            simulationMarker = L.marker([lat, lon], { icon: createNavIcon(), zIndexOffset: 1000 }).addTo(map);
+        } else {
+            simulationMarker.setLatLng([lat, lon]);
+        }
+
+        // Update map view
+        map.setView([lat, lon], NAV_ZOOM, { animate: true, duration: 0.1 });
+
+        // Update navigation display based on proximity to step maneuvers
+        if (routeSteps[currentStepIndex]) {
+            const stepLoc = routeSteps[currentStepIndex].maneuver.location;
+            const dist = haversine(lat, lon, stepLoc[1], stepLoc[0]);
+            if (dist < 30 && currentStepIndex < routeSteps.length - 1) {
+                currentStepIndex++;
                 updateNavigationDisplay();
-                break;
+                speakStep(currentStepIndex);
+            }
+            const nextStep = routeSteps[currentStepIndex];
+            if (nextStep) {
+                $activeNavDistance.textContent = formatDistance(haversine(lat, lon, nextStep.maneuver.location[1], nextStep.maneuver.location[0]));
             }
         }
-        updateRemainingInfo(lat, lng);
-        simulationIndex += 3; // skip points for speed
-        simulationFrame = requestAnimationFrame(() => setTimeout(animateSimulation, 50));
-    }
 
-    // ===== 8. SPEED CAMERAS / RADARS =====
-    function fetchRadarsNearby(lat, lng) {
-        if (radarQueryTimeout) return;
-        radarQueryTimeout = setTimeout(() => { radarQueryTimeout = null; }, RADAR_QUERY_INTERVAL);
-        const query = `[out:json][timeout:5];node[highway=speed_camera](around:2000,${lat},${lng});out body;`;
-        fetch(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`)
-            .then(r => r.ok ? r.json() : null)
-            .then(data => {
-                if (!data?.elements) return;
-                data.elements.forEach(el => {
-                    const id = `${el.lat}_${el.lon}`;
-                    if (knownRadars.has(id)) return;
-                    knownRadars.add(id);
-                    const marker = L.marker([el.lat, el.lon], {
-                        icon: L.divIcon({ className: 'radar-marker', iconSize: [16, 16], iconAnchor: [8, 8] })
-                    }).addTo(map);
-                    radarMarkers.push({ marker, lat: el.lat, lon: el.lon, alerted: false });
-                });
-                checkRadarProximity(lat, lng);
-            })
-            .catch(() => {});
-    }
+        // Update remaining info
+        let remainDist = 0, remainTime = 0;
+        for (let i = currentStepIndex; i < routeSteps.length; i++) { remainDist += routeSteps[i].distance; remainTime += routeSteps[i].duration; }
+        $remainingDistance.textContent = formatDistance(remainDist);
+        $remainingTime.textContent = formatDuration(remainTime);
+        $etaTime.textContent = calculateETA(remainTime);
 
-    function checkRadarProximity(lat, lng) {
-        radarMarkers.forEach(r => {
-            const dist = haversine(lat, lng, r.lat, r.lon);
-            if (dist < RADAR_ALERT_DISTANCE && !r.alerted) {
-                r.alerted = true;
-                if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-                showToast('Radar dans ' + formatDistance(dist), 'error', 4000);
-                speak('Attention, radar');
-            }
-            if (dist > RADAR_ALERT_DISTANCE * 2) r.alerted = false;
+        // Bearing
+        if (simulationIndex + 1 < coords.length) {
+            const nextC = coords[simulationIndex + 1];
+            const bearing = calculateSegmentBearing(lat, lon, nextC[1], nextC[0]);
+            updateMapBearing(bearing);
+        }
+
+        simulationIndex += simulationSpeed;
+        simulationFrame = requestAnimationFrame(() => {
+            setTimeout(animateSimulation, 50); // ~20fps with delay
         });
     }
 
-    function clearRadarMarkers() {
-        radarMarkers.forEach(r => map.removeLayer(r.marker));
-        radarMarkers = [];
-        knownRadars.clear();
-    }
-
-    // ===== 9. CHARGING STATIONS =====
-    // Handled via existing POI system with 'charging' category - see searchPOI
-
-    // ===== 10. DASHBOARD =====
-    function updateDashboard(pos) {
-        if (!$navDashboard || $navDashboard.classList.contains('hidden')) return;
-        if (settings.dashboardItems?.includes('altitude') && $dashAltitude) {
-            const alt = pos.coords.altitude;
-            $dashAltitude.textContent = alt != null ? Math.round(alt) + 'm' : '--';
-        }
-        if (settings.dashboardItems?.includes('heading') && $dashHeading) {
-            const heading = pos.coords.heading;
-            $dashHeading.textContent = heading != null ? Math.round(heading) + '\u00B0' : '--';
-        }
-    }
-
-    // ===== 11. KEYBOARD SHORTCUTS =====
-    function setupKeyboardShortcuts() {
-        document.addEventListener('keydown', e => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-            switch (e.key) {
-                case '/': e.preventDefault(); switchView('search'); $searchInput.focus(); break;
-                case 'Escape':
-                    $isochroneModal?.classList.add('hidden');
-                    $gpxModal?.classList.add('hidden');
-                    $shortcutsModal?.classList.add('hidden');
-                    $favoriteModal?.classList.add('hidden');
-                    $shareModal?.classList.add('hidden');
-                    if (!$navPanel.classList.contains('hidden')) $navClose.click();
-                    if (!$poiPanel.classList.contains('hidden')) $poiClose.click();
-                    break;
-                case 'l': case 'L': $locateBtn.click(); break;
-                case 'p': case 'P': $poiBtn.click(); break;
-                case 'i': case 'I': $isochroneBtn?.click(); break;
-                case '1': switchView('map'); break;
-                case '2': switchView('search'); break;
-                case '3': switchView('settings'); break;
-                case ' ':
-                    e.preventDefault();
-                    if (isNavigating) $activeNavStop.click();
-                    else if (routeData) $navStartBtn.click();
-                    break;
-                case '?': $shortcutsModal?.classList.remove('hidden'); break;
-            }
-        });
-        if ($shortcutsModalClose) {
-            $shortcutsModalClose.addEventListener('click', () => $shortcutsModal.classList.add('hidden'));
-            $shortcutsModal.addEventListener('click', e => { if (e.target === $shortcutsModal) $shortcutsModal.classList.add('hidden'); });
-        }
-    }
-
-    // ===== 12. OFFLINE ZONE DOWNLOAD =====
-    function setupOfflineDownload() {
-        if (!$offlineDownloadBtn) return;
-        $offlineDownloadBtn.addEventListener('click', downloadOfflineZone);
-        if (navigator.serviceWorker) {
-            navigator.serviceWorker.addEventListener('message', e => {
-                if (e.data?.type === 'CACHE_TILES_PROGRESS') {
-                    const pct = Math.round((e.data.done / e.data.total) * 100);
-                    $offlineProgressFill.style.width = pct + '%';
-                    $offlineProgressText.textContent = pct + '%';
-                    if (e.data.done === e.data.total) {
-                        setTimeout(() => { $offlineProgress.classList.add('hidden'); showToast('Zone telechargee', 'success'); }, 500);
-                    }
-                }
+    // ===== FEATURE 8: SPEED CAMERAS / RADARS =====
+    function setupRadarSettings() {
+        const toggle = $('radar-alerts-toggle');
+        if (toggle) {
+            toggle.checked = settings.radarAlerts;
+            toggle.addEventListener('change', () => {
+                settings.radarAlerts = toggle.checked;
+                saveSettings();
             });
         }
     }
 
-    function downloadOfflineZone() {
-        const bounds = map.getBounds();
-        const tileUrls = [];
-        const style = settings.mapStyle || 'standard';
-        const tileTemplate = MAP_TILES[style]?.url || MAP_TILES.standard.url;
-        for (let z = 10; z <= 15; z++) {
-            const minTile = latLngToTile(bounds.getSouthWest().lat, bounds.getSouthWest().lng, z);
-            const maxTile = latLngToTile(bounds.getNorthEast().lat, bounds.getNorthEast().lng, z);
-            for (let x = minTile.x; x <= maxTile.x; x++) {
-                for (let y = maxTile.y; y <= minTile.y; y++) {
-                    tileUrls.push(tileTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y));
-                }
+    function startRadarAlerts() {
+        if (!settings.radarAlerts) return;
+        queryRadarsNearby();
+    }
+
+    function stopRadarAlerts() {
+        if (radarQueryTimeout) { clearTimeout(radarQueryTimeout); radarQueryTimeout = null; }
+        radarMarkers.forEach(m => map.removeLayer(m));
+        radarMarkers = [];
+        knownRadars.clear();
+    }
+
+    async function queryRadarsNearby() {
+        if (!isNavigating || !userPosition) return;
+        const lat = userPosition.lat, lng = userPosition.lng;
+        try {
+            const query = `[out:json][timeout:5];node[highway=speed_camera](around:2000,${lat},${lng});out body;`;
+            const resp = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            if (data.elements) {
+                data.elements.forEach(el => {
+                    const key = `${el.lat},${el.lon}`;
+                    if (!knownRadars.has(key)) {
+                        knownRadars.add(key);
+                        const marker = L.circleMarker([el.lat, el.lon], {
+                            radius: 8, fillColor: '#ff3b30', color: '#fff', weight: 2, fillOpacity: 0.9
+                        }).bindPopup('Radar').addTo(map);
+                        radarMarkers.push(marker);
+                    }
+                });
             }
+        } catch (e) {
+            // Silent fail
         }
-        if (tileUrls.length > 5000) {
-            showToast('Zone trop grande, zoomez', 'error');
-            return;
-        }
-        $offlineProgress.classList.remove('hidden');
-        $offlineProgressFill.style.width = '0%';
-        $offlineProgressText.textContent = `0/${tileUrls.length}`;
-        if (navigator.serviceWorker?.controller) {
-            navigator.serviceWorker.controller.postMessage({ type: 'CACHE_TILES', tiles: tileUrls });
+        // Schedule next query in 30s
+        if (isNavigating) {
+            radarQueryTimeout = setTimeout(queryRadarsNearby, 30000);
         }
     }
 
-    function latLngToTile(lat, lng, zoom) {
+    function checkRadarProximity(lat, lng) {
+        for (const radarKey of knownRadars) {
+            const [rLat, rLon] = radarKey.split(',').map(Number);
+            const dist = haversine(lat, lng, rLat, rLon);
+            if (dist < 500) {
+                showRadarWarning(dist);
+                return;
+            }
+        }
+    }
+
+    let lastRadarWarningTime = 0;
+    function showRadarWarning(dist) {
+        const now = Date.now();
+        if (now - lastRadarWarningTime < 30000) return; // Don't warn more than once every 30s
+        lastRadarWarningTime = now;
+        showToast(`Radar a ${Math.round(dist)} m`, 'error', 4000);
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        if (settings.voiceEnabled) speak('Attention, radar dans ' + Math.round(dist) + ' metres');
+    }
+
+    // ===== FEATURE 9: CHARGING STATIONS =====
+    function setupChargingStationEvents() {
+        // Handled in setupPOIEvents via data-cat="charging"
+        // Also add to quick POI bar if button exists
+        const chargingQuickBtn = document.querySelector('.quick-poi-btn[data-qpoi="charging"]');
+        if (chargingQuickBtn) {
+            chargingQuickBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                searchQuickPOI('charging');
+            });
+        }
+    }
+
+    async function searchChargingStations() {
+        if (!userPosition) { showToast('Position non disponible', 'error'); return; }
+        $poiResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Recherche des bornes...</div>';
+        const lat = userPosition.lat, lng = userPosition.lng;
+        const query = `[out:json][timeout:10];node[amenity=charging_station](around:${POI_RADIUS},${lat},${lng});out body 15;`;
+        try {
+            const resp = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            displayChargingResults(data.elements || []);
+        } catch (err) {
+            $poiResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--danger)">Erreur de recherche</div>';
+        }
+    }
+
+    function displayChargingResults(elements) {
+        clearPOIMarkers();
+        if (!elements || elements.length === 0) {
+            $poiResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Aucune borne a proximite</div>';
+            return;
+        }
+        elements.forEach(el => { el._dist = haversine(userPosition.lat, userPosition.lng, el.lat, el.lon); });
+        elements.sort((a, b) => a._dist - b._dist);
+        $poiResults.innerHTML = elements.map(el => {
+            const name = el.tags?.name || 'Borne de recharge';
+            const operator = el.tags?.operator ? escapeHtml(el.tags.operator) : '';
+            const capacity = el.tags?.capacity ? el.tags.capacity + ' bornes' : '';
+            const sockets = [];
+            if (el.tags?.['socket:type2'] === 'yes') sockets.push('Type 2');
+            if (el.tags?.['socket:chademo'] === 'yes') sockets.push('CHAdeMO');
+            if (el.tags?.['socket:ccs'] === 'yes' || el.tags?.['socket:type2_combo'] === 'yes') sockets.push('CCS');
+            const extra = [operator, capacity, sockets.join(', ')].filter(Boolean).join(' · ');
+            return `<div class="poi-item" data-lat="${el.lat}" data-lon="${el.lon}" data-name="${escapeHtml(name)}">
+                <div class="poi-item-icon" style="color:#30d158"><svg viewBox="0 0 24 24" width="20" height="20"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                <div class="poi-item-text"><div class="poi-item-name">${escapeHtml(name)}</div><div class="poi-item-dist">${extra ? extra + ' · ' : ''}${formatDistance(el._dist)}</div></div>
+            </div>`;
+        }).join('');
+        elements.forEach(el => {
+            const marker = L.circleMarker([el.lat, el.lon], { radius: 8, fillColor: '#30d158', color: '#fff', weight: 2, fillOpacity: 0.9 }).bindPopup(el.tags?.name || 'Borne de recharge').addTo(map);
+            poiMarkers.push(marker);
+        });
+        $poiResults.querySelectorAll('.poi-item').forEach(el => {
+            el.addEventListener('click', () => {
+                $poiPanel.classList.add('hidden');
+                setDestination(parseFloat(el.dataset.lat), parseFloat(el.dataset.lon), el.dataset.name);
+                $searchInput.value = el.dataset.name;
+                $searchClear.classList.remove('hidden');
+                addToHistory({ name: el.dataset.name, address: '', lat: parseFloat(el.dataset.lat), lon: parseFloat(el.dataset.lon) });
+            });
+        });
+    }
+
+    async function searchQuickCharging() {
+        if (!userPosition) return;
+        const lat = userPosition.lat, lng = userPosition.lng;
+        const query = `[out:json][timeout:10];node[amenity=charging_station](around:${POI_RADIUS},${lat},${lng});out body 15;`;
+        try {
+            const resp = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            const elements = data.elements || [];
+            if (elements.length === 0) {
+                $quickPoiPopupResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-secondary)">Aucune borne a proximite</div>';
+                return;
+            }
+            const results = elements.map(el => {
+                const dist = haversine(userPosition.lat, userPosition.lng, el.lat, el.lon);
+                const name = el.tags?.name || 'Borne de recharge';
+                const extra = buildQuickPoiExtraInfo(el, 'charging');
+                return { name, lat: el.lat, lon: el.lon, dist, extra };
+            }).filter(Boolean).sort((a, b) => a.dist - b.dist);
+            renderQuickPoiResults(results, 'charging');
+        } catch (err) {
+            $quickPoiPopupResults.innerHTML = '<div style="padding:16px;text-align:center;color:var(--danger)">Erreur de recherche</div>';
+        }
+    }
+
+    // ===== FEATURE 10: CUSTOMIZABLE DASHBOARD =====
+    function setupDashboardSettings() {
+        const container = $('dashboard-config');
+        if (!container) return;
+        const items = ['speed', 'altitude', 'heading'];
+        items.forEach(item => {
+            const cb = $(`dashboard-${item}-toggle`);
+            if (cb) {
+                cb.checked = (settings.dashboardItems || []).includes(item);
+                cb.addEventListener('change', () => {
+                    if (cb.checked) {
+                        if (!settings.dashboardItems.includes(item)) settings.dashboardItems.push(item);
+                    } else {
+                        settings.dashboardItems = settings.dashboardItems.filter(i => i !== item);
+                    }
+                    saveSettings();
+                });
+            }
+        });
+    }
+
+    function updateDashboard() {
+        if (!isNavigating) return;
+        const dashEl = $('nav-dashboard');
+        if (!dashEl) return;
+        const items = settings.dashboardItems || ['speed', 'altitude', 'heading'];
+        let html = '';
+        items.forEach(item => {
+            if (item === 'speed') {
+                const kmh = (userPosition?.speed && userPosition.speed > 0) ? Math.round(userPosition.speed * 3.6) : 0;
+                html += `<div class="dashboard-widget"><span class="dashboard-value">${kmh}</span><span class="dashboard-label">km/h</span></div>`;
+            } else if (item === 'altitude') {
+                const alt = currentAltitude != null ? Math.round(currentAltitude) : '--';
+                html += `<div class="dashboard-widget"><span class="dashboard-value">${alt}</span><span class="dashboard-label">alt. m</span></div>`;
+            } else if (item === 'heading') {
+                const hdg = currentHeading != null ? Math.round(currentHeading) : '--';
+                const compass = getCompassDirection(currentHeading);
+                html += `<div class="dashboard-widget"><span class="dashboard-value">${hdg}° ${compass}</span><span class="dashboard-label">cap</span></div>`;
+            }
+        });
+        dashEl.innerHTML = html;
+        dashEl.classList.remove('hidden');
+    }
+
+    function hideDashboard() {
+        const dashEl = $('nav-dashboard');
+        if (dashEl) dashEl.classList.add('hidden');
+    }
+
+    function getCompassDirection(heading) {
+        if (heading == null || isNaN(heading)) return '';
+        const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+        const idx = Math.round(heading / 45) % 8;
+        return dirs[idx];
+    }
+
+    // ===== FEATURE 11: KEYBOARD SHORTCUTS =====
+    function setupKeyboardShortcuts() {
+        document.addEventListener('keydown', handleKeyboardShortcut);
+    }
+
+    function handleKeyboardShortcut(e) {
+        // Ignore if typing in input
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+            if (e.key === 'Escape') {
+                e.target.blur();
+                e.preventDefault();
+            }
+            return;
+        }
+
+        switch (e.key) {
+            case 'Escape':
+                e.preventDefault();
+                closeAllPanels();
+                break;
+            case '/':
+                e.preventDefault();
+                switchView('search');
+                $searchInput.focus();
+                break;
+            case 'l':
+            case 'L':
+                e.preventDefault();
+                locateUser();
+                startWatchingPosition();
+                break;
+            case 'p':
+            case 'P':
+                e.preventDefault();
+                $poiPanel.classList.toggle('hidden');
+                break;
+            case '1':
+                e.preventDefault();
+                switchView('map');
+                break;
+            case '2':
+                e.preventDefault();
+                switchView('search');
+                break;
+            case '3':
+                e.preventDefault();
+                switchView('settings');
+                break;
+            case ' ':
+                e.preventDefault();
+                if (isNavigating) stopNavigation();
+                else if (routeData && !isNavigating) startNavigation();
+                break;
+            case '?':
+                e.preventDefault();
+                showShortcutsModal();
+                break;
+        }
+
+        // Ctrl+K for search
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            e.preventDefault();
+            switchView('search');
+            $searchInput.focus();
+        }
+    }
+
+    function closeAllPanels() {
+        $poiPanel.classList.add('hidden');
+        $shareModal.classList.add('hidden');
+        $favoriteModal.classList.add('hidden');
+        const isoDialog = document.getElementById('isochrone-dialog');
+        if (isoDialog) isoDialog.remove();
+        const shortcutsModal = document.getElementById('shortcuts-modal');
+        if (shortcutsModal) shortcutsModal.remove();
+        closeQuickPoiPopup();
+        $searchResults.classList.add('hidden');
+    }
+
+    function showShortcutsModal() {
+        const existing = document.getElementById('shortcuts-modal');
+        if (existing) { existing.remove(); return; }
+        const modal = document.createElement('div');
+        modal.id = 'shortcuts-modal';
+        modal.className = 'mapsi-modal';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width:340px">
+                <div class="modal-header">
+                    <span>Raccourcis clavier</span>
+                    <button id="shortcuts-modal-close" aria-label="Fermer">&times;</button>
+                </div>
+                <div class="modal-body" style="font-size:14px">
+                    <div style="display:grid;grid-template-columns:80px 1fr;gap:6px 12px;align-items:center">
+                        <kbd style="background:var(--bg-secondary);padding:4px 8px;border-radius:4px;text-align:center">Echap</kbd><span>Fermer les panneaux</span>
+                        <kbd style="background:var(--bg-secondary);padding:4px 8px;border-radius:4px;text-align:center">/</kbd><span>Rechercher</span>
+                        <kbd style="background:var(--bg-secondary);padding:4px 8px;border-radius:4px;text-align:center">Ctrl+K</kbd><span>Rechercher</span>
+                        <kbd style="background:var(--bg-secondary);padding:4px 8px;border-radius:4px;text-align:center">L</kbd><span>Ma position</span>
+                        <kbd style="background:var(--bg-secondary);padding:4px 8px;border-radius:4px;text-align:center">P</kbd><span>Points d'interet</span>
+                        <kbd style="background:var(--bg-secondary);padding:4px 8px;border-radius:4px;text-align:center">1</kbd><span>Vue carte</span>
+                        <kbd style="background:var(--bg-secondary);padding:4px 8px;border-radius:4px;text-align:center">2</kbd><span>Vue recherche</span>
+                        <kbd style="background:var(--bg-secondary);padding:4px 8px;border-radius:4px;text-align:center">3</kbd><span>Reglages</span>
+                        <kbd style="background:var(--bg-secondary);padding:4px 8px;border-radius:4px;text-align:center">Espace</kbd><span>Demarrer/Arreter nav.</span>
+                        <kbd style="background:var(--bg-secondary);padding:4px 8px;border-radius:4px;text-align:center">?</kbd><span>Afficher cette aide</span>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        modal.querySelector('#shortcuts-modal-close').addEventListener('click', () => modal.remove());
+        modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    }
+
+    // ===== FEATURE 12: OFFLINE ZONE DOWNLOAD =====
+    function setupOfflineDownload() {
+        const btn = $('offline-download-btn');
+        if (!btn) return;
+        btn.addEventListener('click', startOfflineDownload);
+    }
+
+    function getTileCoords(lat, lng, zoom) {
         const n = Math.pow(2, zoom);
         const x = Math.floor((lng + 180) / 360 * n);
         const latRad = lat * Math.PI / 180;
@@ -2333,123 +2842,248 @@
         return { x, y };
     }
 
-    // ===== 13. WEATHER =====
-    function setupWeather() {
-        updateWeather();
-        weatherTimeout = setInterval(updateWeather, WEATHER_UPDATE_INTERVAL);
+    async function startOfflineDownload() {
+        if (offlineDownloading) { showToast('Telechargement deja en cours', 'info'); return; }
+        if (!map) return;
+
+        const bounds = map.getBounds();
+        const minLat = bounds.getSouth(), maxLat = bounds.getNorth();
+        const minLng = bounds.getWest(), maxLng = bounds.getEast();
+
+        // Calculate tile count for zoom 10-16
+        let totalTiles = 0;
+        for (let z = 10; z <= 16; z++) {
+            const topLeft = getTileCoords(maxLat, minLng, z);
+            const bottomRight = getTileCoords(minLat, maxLng, z);
+            const xRange = Math.abs(bottomRight.x - topLeft.x) + 1;
+            const yRange = Math.abs(bottomRight.y - topLeft.y) + 1;
+            totalTiles += xRange * yRange;
+        }
+
+        if (totalTiles > 5000) {
+            showToast(`Trop de tuiles (${totalTiles}). Zoomez pour reduire la zone.`, 'error');
+            return;
+        }
+
+        if (!confirm(`Telecharger ${totalTiles} tuiles pour cette zone ?\nCela peut prendre quelques minutes.`)) return;
+
+        offlineDownloading = true;
+        showToast(`Telechargement de ${totalTiles} tuiles...`, 'info', 5000);
+
+        const tileUrl = MAP_TILES[settings.mapStyle]?.url || MAP_TILES.standard.url;
+        let downloaded = 0;
+        let errors = 0;
+
+        // Use service worker to cache tiles
+        const sw = navigator.serviceWorker?.controller;
+
+        for (let z = 10; z <= 16; z++) {
+            const topLeft = getTileCoords(maxLat, minLng, z);
+            const bottomRight = getTileCoords(minLat, maxLng, z);
+            const xMin = Math.min(topLeft.x, bottomRight.x);
+            const xMax = Math.max(topLeft.x, bottomRight.x);
+            const yMin = Math.min(topLeft.y, bottomRight.y);
+            const yMax = Math.max(topLeft.y, bottomRight.y);
+
+            for (let x = xMin; x <= xMax; x++) {
+                for (let y = yMin; y <= yMax; y++) {
+                    const url = tileUrl.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+                    try {
+                        // Try to cache via SW message
+                        if (sw) {
+                            sw.postMessage({ type: 'CACHE_TILE', url });
+                        } else {
+                            // Fallback: just fetch to populate browser cache
+                            await fetch(url, { mode: 'cors' });
+                        }
+                        downloaded++;
+                    } catch (e) {
+                        errors++;
+                    }
+
+                    // Progress update every 50 tiles
+                    if (downloaded % 50 === 0) {
+                        showToast(`Progression: ${downloaded}/${totalTiles} tuiles`, 'info', 2000);
+                    }
+                }
+            }
+        }
+
+        offlineDownloading = false;
+        showToast(`Telechargement termine: ${downloaded} tuiles${errors > 0 ? `, ${errors} erreurs` : ''}`, downloaded > 0 ? 'success' : 'error', 5000);
     }
 
-    async function updateWeather() {
-        if (!userPosition || !$weatherWidget) return;
+    // ===== FEATURE 13: WEATHER (Open-Meteo) =====
+    function setupWeather() {
+        // Initial weather fetch when position available
+    }
+
+    function updateWeatherIfNeeded(lat, lng) {
+        if (!lat || !lng) return;
+        // Only update every 15 minutes or significant position change
+        const now = Date.now();
+        if (lastWeatherPos) {
+            const distMoved = haversine(lat, lng, lastWeatherPos.lat, lastWeatherPos.lng);
+            const timeSince = now - lastWeatherPos.time;
+            if (distMoved < 5000 && timeSince < 900000) return; // 5km or 15min
+        }
+        lastWeatherPos = { lat, lng, time: now };
+        fetchWeather(lat, lng);
+    }
+
+    async function fetchWeather(lat, lng) {
         try {
-            const resp = await fetch(`${WEATHER_URL}/v1/forecast?latitude=${userPosition.lat}&longitude=${userPosition.lng}&current_weather=true`);
-            if (!resp.ok) throw new Error();
+            const resp = await fetch(`${WEATHER_URL}/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true`);
+            if (!resp.ok) return;
             const data = await resp.json();
-            const cw = data.current_weather;
-            if (!cw) return;
-            $weatherIcon.textContent = getWeatherEmoji(cw.weathercode);
-            $weatherTemp.textContent = Math.round(cw.temperature) + '\u00B0';
-            $weatherWind.textContent = Math.round(cw.windspeed) + ' km/h';
-            $weatherWidget.classList.remove('hidden');
+            if (data.current_weather) {
+                displayWeatherWidget(data.current_weather);
+            }
         } catch (e) {
             // Silent fail
         }
     }
 
-    function getWeatherEmoji(code) {
-        if (code === 0) return '\u2600'; // sun
-        if (code <= 3) return '\u26C5'; // partly cloudy
-        if (code <= 48) return '\u2601'; // cloudy/fog
-        if (code <= 57) return '\uD83C\uDF27'; // drizzle
-        if (code <= 67) return '\uD83C\uDF27'; // rain
-        if (code <= 77) return '\u2744'; // snow
-        if (code <= 82) return '\u26C8'; // showers
-        if (code <= 86) return '\u2744'; // snow showers
-        return '\u26A1'; // thunderstorm
+    function displayWeatherWidget(weather) {
+        let widget = $('weather-widget');
+        if (!widget) {
+            widget = document.createElement('div');
+            widget.id = 'weather-widget';
+            widget.style.cssText = 'position:absolute;top:env(safe-area-inset-top, 8px);right:8px;z-index:800;background:var(--bg-glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-radius:12px;padding:8px 12px;font-size:13px;color:var(--text-primary);display:flex;align-items:center;gap:6px;pointer-events:none;';
+            const mapContainer = document.getElementById('map-view');
+            if (mapContainer) mapContainer.appendChild(widget);
+        }
+        const icon = getWeatherIcon(weather.weathercode);
+        const temp = Math.round(weather.temperature);
+        const wind = Math.round(weather.windspeed);
+        widget.innerHTML = `<span style="font-size:18px">${icon}</span><span>${temp}°C</span><span style="opacity:0.6;font-size:11px">${wind} km/h</span>`;
     }
 
-    // ===== 15. SYNC =====
-    function setupSyncEvents() {
-        if (settings.syncEnabled) syncFromServer();
+    function getWeatherIcon(code) {
+        // WMO weather interpretation codes to simple text icons
+        if (code === 0) return '☀️';
+        if (code <= 3) return '⛅';
+        if (code <= 48) return '🌫️';
+        if (code <= 57) return '🌧️';
+        if (code <= 67) return '🌧️';
+        if (code <= 77) return '❄️';
+        if (code <= 82) return '🌧️';
+        if (code <= 86) return '❄️';
+        if (code >= 95) return '⛈️';
+        return '🌤️';
     }
 
-    async function syncToServer() {
+    async function fetchDestinationWeather() {
+        if (!destination) return;
+        try {
+            const resp = await fetch(`${WEATHER_URL}/v1/forecast?latitude=${destination.lat}&longitude=${destination.lon}&current_weather=true`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (data.current_weather) {
+                const icon = getWeatherIcon(data.current_weather.weathercode);
+                const temp = Math.round(data.current_weather.temperature);
+                const weatherInfo = $('nav-weather-info');
+                if (weatherInfo) {
+                    weatherInfo.innerHTML = `${icon} ${temp}°C`;
+                    weatherInfo.classList.remove('hidden');
+                }
+            }
+        } catch (e) {}
+    }
+
+    // ===== FEATURE 14: VEHICLE PROFILE =====
+    function setupVehicleProfileSettings() {
+        const fields = ['height', 'weight', 'width', 'length'];
+        fields.forEach(field => {
+            const input = $(`vehicle-${field}`);
+            if (input) {
+                if (settings.vehicleProfile && settings.vehicleProfile[field]) {
+                    input.value = settings.vehicleProfile[field];
+                }
+                input.addEventListener('change', () => {
+                    const val = parseFloat(input.value);
+                    if (!settings.vehicleProfile) settings.vehicleProfile = { height: null, weight: null, width: null, length: null };
+                    settings.vehicleProfile[field] = (isNaN(val) || val <= 0) ? null : val;
+                    saveSettings();
+                    if (destination && userPosition) calculateRoute();
+                });
+            }
+        });
+    }
+
+    // ===== FEATURE 15: CROSS-DEVICE FAVORITES SYNC =====
+    function setupSyncSettings() {
+        const toggle = $('sync-toggle');
+        if (toggle) {
+            toggle.checked = settings.syncEnabled;
+            toggle.addEventListener('change', () => {
+                settings.syncEnabled = toggle.checked;
+                saveSettings();
+                if (toggle.checked) {
+                    syncFavoritesPush();
+                    syncSettingsPush();
+                }
+            });
+        }
+    }
+
+    async function syncFavoritesPush() {
         if (!settings.syncEnabled) return;
         try {
-            await fetch(`${SYNC_URL}/favorites`, {
+            await fetch('/api/sync/favorites', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(favorites)
             });
-            await fetch(`${SYNC_URL}/settings`, {
+        } catch (e) {
+            // Silent failure
+        }
+    }
+
+    async function syncFavoritesPull() {
+        if (!settings.syncEnabled) return;
+        try {
+            const resp = await fetch('/api/sync/favorites');
+            if (resp.ok) {
+                const data = await resp.json();
+                if (Array.isArray(data) && data.length > 0) {
+                    favorites = data;
+                    try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); } catch (e) {}
+                }
+            }
+        } catch (e) {
+            // Silent failure - use localStorage data
+        }
+    }
+
+    async function syncSettingsPush() {
+        if (!settings.syncEnabled) return;
+        try {
+            await fetch('/api/sync/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
             });
-        } catch (e) { /* silent */ }
+        } catch (e) {
+            // Silent failure
+        }
     }
 
-    async function syncFromServer() {
+    async function syncSettingsPull() {
+        if (!settings.syncEnabled) return;
         try {
-            const favResp = await fetch(`${SYNC_URL}/favorites`);
-            if (favResp.ok) {
-                const data = await favResp.json();
-                if (data.data && Array.isArray(data.data)) {
-                    favorites = data.data;
-                    saveFavorites();
-                    renderFavorites();
+            const resp = await fetch('/api/sync/settings');
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data && typeof data === 'object') {
+                    settings = { ...settings, ...data };
+                    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {}
+                    applySettings();
                 }
             }
-        } catch (e) { /* silent, use local */ }
-    }
-
-    // ===== NEW SETTINGS EVENTS =====
-    function setupNewSettingsEvents() {
-        if ($autoNightToggle) $autoNightToggle.addEventListener('change', () => {
-            settings.autoNightMap = $autoNightToggle.checked;
-            saveSettings();
-            if (settings.autoNightMap) checkAutoNightMode();
-        });
-        if ($radarAlertsToggle) $radarAlertsToggle.addEventListener('change', () => {
-            settings.radarAlerts = $radarAlertsToggle.checked;
-            saveSettings();
-        });
-        if ($syncToggle) $syncToggle.addEventListener('change', () => {
-            settings.syncEnabled = $syncToggle.checked;
-            saveSettings();
-            if (settings.syncEnabled) syncToServer();
-        });
-        const vehicleInputHandler = () => {
-            settings.vehicleProfile = {
-                height: $vehicleHeight?.value ? parseFloat($vehicleHeight.value) : null,
-                weight: $vehicleWeight?.value ? parseFloat($vehicleWeight.value) : null,
-                width: $vehicleWidth?.value ? parseFloat($vehicleWidth.value) : null,
-                length: $vehicleLength?.value ? parseFloat($vehicleLength.value) : null
-            };
-            saveSettings();
-        };
-        [$vehicleHeight, $vehicleWeight, $vehicleWidth, $vehicleLength].forEach(el => {
-            if (el) el.addEventListener('change', vehicleInputHandler);
-        });
-        if ($dashAltitudeToggle) $dashAltitudeToggle.addEventListener('change', () => {
-            const items = new Set(settings.dashboardItems || []);
-            if ($dashAltitudeToggle.checked) items.add('altitude'); else items.delete('altitude');
-            settings.dashboardItems = [...items];
-            saveSettings();
-        });
-        if ($dashHeadingToggle) $dashHeadingToggle.addEventListener('change', () => {
-            const items = new Set(settings.dashboardItems || []);
-            if ($dashHeadingToggle.checked) items.add('heading'); else items.delete('heading');
-            settings.dashboardItems = [...items];
-            saveSettings();
-        });
-        if ($tripsClearBtn) $tripsClearBtn.addEventListener('click', () => {
-            if (!tripsDb || !confirm('Effacer tous les trajets ?')) return;
-            const tx = tripsDb.transaction(TRIPS_STORE, 'readwrite');
-            tx.objectStore(TRIPS_STORE).clear();
-            tx.oncomplete = () => renderTrips();
-        });
-        if ($optimizeWaypointsBtn) $optimizeWaypointsBtn.addEventListener('click', optimizeWaypointOrder);
+        } catch (e) {
+            // Silent failure
+        }
     }
 
     // ===== EVENT LISTENERS =====
