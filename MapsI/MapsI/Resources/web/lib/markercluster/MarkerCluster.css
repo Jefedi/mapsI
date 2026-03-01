@@ -1,0 +1,63 @@
+/**
+ * MarkerCluster.css - Base structural styles for Leaflet.MarkerCluster
+ * Handles layout, sizing, and animation for cluster icons and spiderfy legs.
+ */
+
+/* ---- Cluster icon base ---- */
+
+.marker-cluster {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.marker-cluster:hover {
+    transform: scale(1.15);
+    z-index: 10000 !important;
+}
+
+.marker-cluster span {
+    display: block;
+    text-align: center;
+    font-weight: 700;
+    line-height: 1;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* ---- Size variants ---- */
+
+.marker-cluster-small {
+    width: 36px;
+    height: 36px;
+    font-size: 13px;
+}
+
+.marker-cluster-medium {
+    width: 44px;
+    height: 44px;
+    font-size: 14px;
+}
+
+.marker-cluster-large {
+    width: 52px;
+    height: 52px;
+    font-size: 15px;
+}
+
+/* ---- Spider legs ---- */
+
+.spider-leg {
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* ---- Leaflet pane z-index override for clusters ---- */
+
+.leaflet-marker-pane .marker-cluster {
+    z-index: 500 !important;
+}
