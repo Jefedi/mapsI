@@ -42,6 +42,22 @@ jobs:
       - name: List schemes
         run: xcodebuild -project "$PROJECT_PATH" -list
 
+      - name: Build for iOS (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            2>&1 | tee "$RUNNER_TEMP/build.log"
+
       - name: Build archive
         run: |
           set -o pipefail
@@ -51,15 +67,12 @@ jobs:
             -configuration "$CONFIGURATION" \
             -destination "$DESTINATION" \
             -archivePath "$RUNNER_TEMP/MapsI.xcarchive" \
-            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGN_ENTITLEMENTS="" \
             DEVELOPMENT_TEAM="" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            2>&1 | tee "$RUNNER_TEMP/build.log" | tail -50
+            2>&1 | tee -a "$RUNNER_TEMP/build.log"
 
       - name: Inspect archive structure
         if: always()
@@ -69,26 +82,32 @@ jobs:
           echo ""
           echo "=== Looking for .app ==="
           find "$RUNNER_TEMP/MapsI.xcarchive" -name "*.app" -type d 2>/dev/null || echo "No .app found"
+          echo ""
+          echo "=== DerivedData .app ==="
+          find "$RUNNER_TEMP/DerivedData" -name "*.app" -type d 2>/dev/null || echo "No .app in DerivedData"
 
-      - name: Create IPA from archive
+      - name: Create IPA
         run: |
-          # Find the .app bundle inside the archive
-          APP_PATH=$(find "$RUNNER_TEMP/MapsI.xcarchive" -name "*.app" -type d | head -1)
+          # Try archive first, then DerivedData
+          APP_PATH=$(find "$RUNNER_TEMP/MapsI.xcarchive" -name "*.app" -type d 2>/dev/null | head -1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -name "*.app" -type d 2>/dev/null | head -1)
+          fi
 
           if [ -z "$APP_PATH" ]; then
-            echo "ERROR: No .app found in archive"
-            echo "=== Last 100 lines of build log ==="
-            tail -100 "$RUNNER_TEMP/build.log"
+            echo "ERROR: No .app found"
+            tail -50 "$RUNNER_TEMP/build.log"
             exit 1
           fi
 
           echo "Found app at: $APP_PATH"
+          echo "App contents:"
+          ls -la "$APP_PATH/"
 
-          # Create Payload directory
+          # Create Payload directory and IPA
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -r "$APP_PATH" "$RUNNER_TEMP/Payload/"
 
-          # Create IPA (zip of Payload)
           cd "$RUNNER_TEMP"
           zip -r -9 MapsI.ipa Payload
 
@@ -109,3 +128,11 @@ jobs:
           name: MapsI-archive-${{ github.sha }}
           path: ${{ runner.temp }}/MapsI.xcarchive
           retention-days: 14
+
+      - name: Upload build log on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-log-${{ github.sha }}
+          path: ${{ runner.temp }}/build.log
+          retention-days: 7

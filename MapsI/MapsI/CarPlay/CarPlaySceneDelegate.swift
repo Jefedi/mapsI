@@ -1,5 +1,6 @@
 import CarPlay
 import MapKit
+import CoreLocation
 
 class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
 
@@ -59,10 +60,8 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     // MARK: - Favorites
 
     private func showFavorites() {
-        // Request favorites from JS
         NavigationBridge.shared.sendToJS("window.mapsiCarPlayGetFavorites()")
 
-        // Show a list template with a loading state
         let section = CPListSection(items: [
             CPListItem(text: "Chargement...", detailText: nil)
         ])
@@ -87,7 +86,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         let section = CPListSection(items: items.isEmpty ? [CPListItem(text: "Aucun favori", detailText: nil)] : items)
         let listTemplate = CPListTemplate(title: "Favoris", sections: [section])
 
-        // Replace current template
         if let topTemplate = interfaceController?.topTemplate, topTemplate is CPListTemplate {
             interfaceController?.popTemplate(animated: false, completion: nil)
         }
@@ -99,11 +97,17 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     func onNavigationStarted() {
         guard let mapTemplate = mapTemplate else { return }
 
-        let trip = CPTrip(
-            origin: MKMapItem.forCurrentLocation(),
-            destination: MKMapItem(placemark: MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: 0, longitude: 0))),
-            routeChoices: [CPRouteChoice(summariesVariants: ["Itineraire"], additionalInformationVariants: [], selectionSummaryVariants: [""])]
+        let routeChoice = CPRouteChoice(
+            summariesVariants: ["Itineraire"],
+            additionalInformationVariants: [""],
+            selectionSummaryVariants: [""]
         )
+
+        let origin = MKMapItem.forCurrentLocation()
+        let destPlacemark = MKPlacemark(coordinate: CLLocationCoordinate2D(latitude: 0, longitude: 0))
+        let destItem = MKMapItem(placemark: destPlacemark)
+
+        let trip = CPTrip(origin: origin, destination: destItem, routeChoices: [routeChoice])
         currentTrip = trip
 
         let session = mapTemplate.startNavigationSession(for: trip)
@@ -121,14 +125,10 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         guard let session = navigationSession else { return }
         let bridge = NavigationBridge.shared
 
-        // Build maneuver
         let maneuver = CPManeuver()
         maneuver.instructionVariants = [bridge.currentInstruction]
-
-        // Set maneuver symbol based on type
         maneuver.symbolImage = maneuverImage(for: bridge.maneuverType)
 
-        // Estimate distance to next maneuver
         if let distValue = parseDistance(bridge.currentDistance) {
             maneuver.initialTravelEstimates = CPTravelEstimates(
                 distanceRemaining: distValue,
@@ -138,7 +138,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
 
         session.upcomingManeuvers = [maneuver]
 
-        // Update trip estimates
         if let totalDist = parseDistance(bridge.remainingDistance) {
             let timeRemaining = parseTimeInterval(bridge.remainingTime)
             let estimates = CPTravelEstimates(
@@ -149,8 +148,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
                 session.updateEstimates(estimates, for: trip)
             }
         }
-
-        session.resumeTrip(with: .routing, description: bridge.currentStreet)
     }
 
     func onSearchResults(_ results: [[String: Any]]) {
@@ -160,17 +157,16 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     func onRouteCalculated(distance: String, duration: String, eta: String) {
         guard let mapTemplate = mapTemplate else { return }
 
-        // Show route preview with a navigation button
-        let navigateButton = CPMapButton { [weak self] _ in
+        let navigateButton = CPMapButton(handler: { [weak self] _ in
             NavigationBridge.shared.startNavigation()
-            self?.mapTemplate?.dismissPanningInterface(animated: true)
-        }
+            self?.mapTemplate?.mapButtons = []
+        })
         navigateButton.image = UIImage(systemName: "arrow.triangle.turn.up.right.circle.fill")
 
-        let closeButton = CPMapButton { [weak self] _ in
+        let closeButton = CPMapButton(handler: { [weak self] _ in
             NavigationBridge.shared.stopNavigation()
-            self?.mapTemplate?.dismissPanningInterface(animated: true)
-        }
+            self?.mapTemplate?.mapButtons = []
+        })
         closeButton.image = UIImage(systemName: "xmark.circle.fill")
 
         mapTemplate.mapButtons = [navigateButton, closeButton]
@@ -179,7 +175,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     // MARK: - Location
 
     func updateLocation(_ location: CLLocation) {
-        // CarPlay map centering is handled by the web layer via the bridge
+        // CarPlay map is managed by the web layer
     }
 
     // MARK: - Helpers
@@ -214,11 +210,11 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     private func parseDistance(_ str: String) -> Measurement<UnitLength>? {
         let trimmed = str.trimmingCharacters(in: .whitespaces)
         if trimmed.hasSuffix("km") {
-            let numStr = trimmed.replacingOccurrences(of: "km", with: "").trimmingCharacters(in: .whitespaces)
+            let numStr = trimmed.replacingOccurrences(of: " km", with: "").replacingOccurrences(of: "km", with: "").trimmingCharacters(in: .whitespaces)
             guard let value = Double(numStr) else { return nil }
             return Measurement(value: value, unit: UnitLength.kilometers)
         } else if trimmed.hasSuffix("m") {
-            let numStr = trimmed.replacingOccurrences(of: "m", with: "").trimmingCharacters(in: .whitespaces)
+            let numStr = trimmed.replacingOccurrences(of: " m", with: "").replacingOccurrences(of: "m", with: "").trimmingCharacters(in: .whitespaces)
             guard let value = Double(numStr) else { return nil }
             return Measurement(value: value, unit: UnitLength.meters)
         }
@@ -228,7 +224,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     private func parseTimeInterval(_ str: String) -> TimeInterval {
         var total: TimeInterval = 0
         let trimmed = str.trimmingCharacters(in: .whitespaces)
-        // Format: "1 h 30 min" or "45 min"
         let parts = trimmed.components(separatedBy: " ")
         for (i, part) in parts.enumerated() {
             if part == "h", i > 0, let hours = Double(parts[i - 1]) {
@@ -248,7 +243,6 @@ extension CarPlaySceneDelegate: CPMapTemplateDelegate {
 
     func mapTemplate(_ mapTemplate: CPMapTemplate, panBeganWith direction: CPMapTemplate.PanDirection) {}
     func mapTemplate(_ mapTemplate: CPMapTemplate, panEndedWith direction: CPMapTemplate.PanDirection) {}
-
     func mapTemplate(_ mapTemplate: CPMapTemplate, didEndPanGestureWithVelocity velocity: CGPoint) {}
 }
 
@@ -262,16 +256,11 @@ extension CarPlaySceneDelegate: CPSearchTemplateDelegate {
             return
         }
 
-        // Debounce in a simple way: just search after text update
         NavigationBridge.shared.searchAddress(searchText)
-
-        // Results come back async via the bridge
-        // We store the completion handler and call it when results arrive
         pendingSearchCompletion = completionHandler
     }
 
     func searchTemplate(_ searchTemplate: CPSearchTemplate, selectedResult item: CPListItem, completionHandler: @escaping () -> Void) {
-        // Extract coordinates from userInfo
         if let info = item.userInfo as? [String: Any],
            let lat = info["lat"] as? Double,
            let lon = info["lon"] as? Double,
