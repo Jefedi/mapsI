@@ -62,7 +62,7 @@ final class NavigationBridge: NSObject, WKScriptMessageHandler {
         case "searchResults":
             if let results = body["results"] as? [[String: Any]] {
                 lastSearchResults = results
-                carPlayManager?.onSearchResults(results)
+                carPlayManager?.deliverSearchResults(results)
             }
 
         case "routeCalculated":
@@ -70,6 +70,11 @@ final class NavigationBridge: NSObject, WKScriptMessageHandler {
             let duration = body["duration"] as? String ?? ""
             let etaStr = body["eta"] as? String ?? ""
             carPlayManager?.onRouteCalculated(distance: distance, duration: duration, eta: etaStr)
+
+        case "favorites":
+            if let favorites = body["favorites"] as? [[String: Any]] {
+                carPlayManager?.updateFavorites(favorites)
+            }
 
         case "requestAlwaysLocation":
             if let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,

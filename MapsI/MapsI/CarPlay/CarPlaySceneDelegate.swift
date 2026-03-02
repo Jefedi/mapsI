@@ -154,7 +154,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     }
 
     func onSearchResults(_ results: [[String: Any]]) {
-        // Results handled in CPSearchTemplateDelegate
+        deliverSearchResults(results)
     }
 
     func onRouteCalculated(distance: String, duration: String, eta: String) {

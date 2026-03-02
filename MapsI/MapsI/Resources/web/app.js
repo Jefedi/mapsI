@@ -223,13 +223,8 @@
     const $dashHeading = $('dash-heading');
     const $shortcutsModal = $('shortcuts-modal');
     const $shortcutsModalClose = $('shortcuts-modal-close');
-    const $offlineDownloadBtn = $('offline-download-btn');
-    const $offlineProgress = $('offline-progress');
-    const $offlineProgressFill = $('offline-progress-fill');
-    const $offlineProgressText = $('offline-progress-text');
     const $autoNightToggle = $('auto-night-toggle');
     const $radarAlertsToggle = $('radar-alerts-toggle');
-    const $syncToggle = $('sync-toggle');
     const $vehicleHeight = $('vehicle-height');
     const $vehicleWeight = $('vehicle-weight');
     const $vehicleWidth = $('vehicle-width');
@@ -317,7 +312,6 @@
         // New settings
         if ($autoNightToggle) $autoNightToggle.checked = settings.autoNightMap;
         if ($radarAlertsToggle) $radarAlertsToggle.checked = settings.radarAlerts;
-        if ($syncToggle) $syncToggle.checked = settings.syncEnabled;
         if ($vehicleHeight) $vehicleHeight.value = settings.vehicleProfile?.height || '';
         if ($vehicleWeight) $vehicleWeight.value = settings.vehicleProfile?.weight || '';
         if ($vehicleWidth) $vehicleWidth.value = settings.vehicleProfile?.width || '';
@@ -2351,11 +2345,6 @@
         if ($radarAlertsToggle) $radarAlertsToggle.addEventListener('change', () => {
             settings.radarAlerts = $radarAlertsToggle.checked;
             saveSettings();
-        });
-        if ($syncToggle) $syncToggle.addEventListener('change', () => {
-            settings.syncEnabled = $syncToggle.checked;
-            saveSettings();
-            if (settings.syncEnabled) syncToServer();
         });
         const vehicleInputHandler = () => {
             settings.vehicleProfile = {
