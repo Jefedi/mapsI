@@ -75,6 +75,15 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             2>&1 | tee -a "$RUNNER_TEMP/build.log"
 
+      - name: Show build errors
+        if: failure()
+        run: |
+          echo "=== LAST 200 LINES OF BUILD LOG ==="
+          tail -200 "$RUNNER_TEMP/build.log" 2>/dev/null || echo "No build log"
+          echo ""
+          echo "=== ERRORS ONLY ==="
+          grep -i "error:" "$RUNNER_TEMP/build.log" 2>/dev/null | head -30 || echo "No errors found in log"
+
       - name: Inspect archive structure
         if: always()
         run: |
