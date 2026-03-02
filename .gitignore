@@ -2,16 +2,46 @@
 .DS_Store
 Thumbs.db
 
-# Node (si besoin futur)
+# Node
 node_modules/
 
 # Logs
 *.log
 certs/
 
-# Data (volumes OSM, tuiles, elevation - trop volumineux pour git)
+# Data (volumes OSM, tuiles, elevation)
 data/osm/
 data/valhalla/valhalla_tiles/
 data/valhalla/*.pbf
 data/tiles/*.mbtiles
 data/elevation/mapzen/
+
+# Xcode
+build/
+DerivedData/
+*.xcuserdata
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.xcscmblueprint
+*.xcworkspacedata
+
+# Swift Package Manager
+.build/
+Packages/
+
+# CocoaPods
+Pods/

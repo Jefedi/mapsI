@@ -1,0 +1,162 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ master, 'claude/**' ]
+    paths:
+      - 'MapsI/**'
+      - '.github/workflows/build-ios.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'MapsI/**'
+  workflow_dispatch:
+
+env:
+  PROJECT_PATH: MapsI/MapsI.xcodeproj
+  SCHEME: MapsI
+  CONFIGURATION: Release
+
+jobs:
+  build:
+    name: Build IPA
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          # List available Xcode versions and pick the latest
+          ls /Applications/ | grep Xcode
+          XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          echo "Using: $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: List schemes
+        run: xcodebuild -project "$PROJECT_PATH" -list
+
+      - name: Build for iOS (unsigned)
+        run: |
+          xcodebuild build \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            2>&1 | tee "$RUNNER_TEMP/build.log"
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "::group::Build Errors"
+            grep -i "error:" "$RUNNER_TEMP/build.log" | head -30
+            echo "::endgroup::"
+            echo ""
+            echo "::group::Full build output (last 150 lines)"
+            tail -150 "$RUNNER_TEMP/build.log"
+            echo "::endgroup::"
+            # Emit errors as annotations
+            grep "error:" "$RUNNER_TEMP/build.log" | head -5 | while read -r line; do
+              echo "::error::$line"
+            done
+            exit $BUILD_EXIT
+          fi
+
+      - name: Build archive
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -archivePath "$RUNNER_TEMP/MapsI.xcarchive" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            2>&1 | tee -a "$RUNNER_TEMP/build.log"
+
+      - name: Show build errors
+        if: failure()
+        run: |
+          echo "=== LAST 200 LINES OF BUILD LOG ==="
+          tail -200 "$RUNNER_TEMP/build.log" 2>/dev/null || echo "No build log"
+          echo ""
+          echo "=== ERRORS ONLY ==="
+          grep -i "error:" "$RUNNER_TEMP/build.log" 2>/dev/null | head -30 || echo "No errors found in log"
+
+      - name: Inspect archive structure
+        if: always()
+        run: |
+          echo "=== Archive contents ==="
+          find "$RUNNER_TEMP/MapsI.xcarchive" -maxdepth 4 -type d 2>/dev/null || echo "No archive found"
+          echo ""
+          echo "=== Looking for .app ==="
+          find "$RUNNER_TEMP/MapsI.xcarchive" -name "*.app" -type d 2>/dev/null || echo "No .app found"
+          echo ""
+          echo "=== DerivedData .app ==="
+          find "$RUNNER_TEMP/DerivedData" -name "*.app" -type d 2>/dev/null || echo "No .app in DerivedData"
+
+      - name: Create IPA
+        run: |
+          # Try archive first, then DerivedData
+          APP_PATH=$(find "$RUNNER_TEMP/MapsI.xcarchive" -name "*.app" -type d 2>/dev/null | head -1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -name "*.app" -type d 2>/dev/null | head -1)
+          fi
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: No .app found"
+            tail -50 "$RUNNER_TEMP/build.log"
+            exit 1
+          fi
+
+          echo "Found app at: $APP_PATH"
+          echo "App contents:"
+          ls -la "$APP_PATH/"
+
+          # Create Payload directory and IPA
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -r "$APP_PATH" "$RUNNER_TEMP/Payload/"
+
+          cd "$RUNNER_TEMP"
+          zip -r -9 MapsI.ipa Payload
+
+          echo "IPA created successfully"
+          echo "IPA size: $(du -h MapsI.ipa | cut -f1)"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MapsI-${{ github.sha }}
+          path: ${{ runner.temp }}/MapsI.ipa
+          retention-days: 30
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: MapsI-archive-${{ github.sha }}
+          path: ${{ runner.temp }}/MapsI.xcarchive
+          retention-days: 14
+
+      - name: Upload build log on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-log-${{ github.sha }}
+          path: ${{ runner.temp }}/build.log
+          retention-days: 7
