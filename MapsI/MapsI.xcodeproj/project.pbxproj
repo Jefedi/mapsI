@@ -13,7 +13,6 @@
 		A1000004 /* NavigationBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000004; };
 		A1000005 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000005; };
 		A1000006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000006; };
-		A1000007 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A2000007; };
 		A1000008 /* web in Resources */ = {isa = PBXBuildFile; fileRef = A2000008; };
 		A1000009 /* CarPlay.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000009; settings = {ATTRIBUTES = (Weak, ); }; };
 /* End PBXBuildFile section */
@@ -25,7 +24,6 @@
 		A2000004 /* NavigationBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationBridge.swift; sourceTree = "<group>"; };
 		A2000005 /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
 		A2000006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A2000007 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A2000008 /* web */ = {isa = PBXFileReference; lastKnownFileType = folder; name = web; path = Resources/web; sourceTree = "<group>"; };
 		A2000009 /* CarPlay.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CarPlay.framework; path = System/Library/Frameworks/CarPlay.framework; sourceTree = SDKROOT; };
 		A200000A /* MapsI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MapsI.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -63,7 +61,6 @@
 				A4000003 /* Bridge */,
 				A4000004 /* CarPlay */,
 				A2000006 /* Assets.xcassets */,
-				A2000007 /* LaunchScreen.storyboard */,
 				A2000008 /* web */,
 				A200000B /* Info.plist */,
 				A200000C /* MapsI.entitlements */,
@@ -163,7 +160,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000006 /* Assets.xcassets in Resources */,
-				A1000007 /* LaunchScreen.storyboard in Resources */,
 				A1000008 /* web in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
