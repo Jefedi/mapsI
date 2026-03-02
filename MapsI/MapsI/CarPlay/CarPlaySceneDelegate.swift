@@ -111,7 +111,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         currentTrip = trip
 
         let session = mapTemplate.startNavigationSession(for: trip)
-        session.pauseTrip(for: CPTripPauseReason.loading, description: "Chargement...")
+        session.pauseTrip(for: CPNavigationSession.PauseReason.loading, description: "Chargement...")
         navigationSession = session
     }
 
