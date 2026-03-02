@@ -47,6 +47,7 @@ class MapWebViewController: UIViewController {
         webView.scrollView.bounces = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.allowsBackForwardNavigationGestures = false
+        webView.uiDelegate = self
 
         #if DEBUG
         if #available(iOS 16.4, *) {
@@ -93,6 +94,28 @@ class MapWebViewController: UIViewController {
     func stopBackgroundLocation() {
         locationManager.allowsBackgroundLocationUpdates = false
         locationManager.pausesLocationUpdatesAutomatically = true
+    }
+}
+
+// MARK: - WKUIDelegate (Geolocation permission)
+
+extension MapWebViewController: WKUIDelegate {
+
+    func webView(
+        _ webView: WKWebView,
+        requestGeolocationPermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        decisionHandler: @escaping (WKPermissionDecision) -> Void
+    ) {
+        // Grant geolocation to the web content automatically when the native app
+        // already has location authorization, avoiding the second ugly popup that
+        // shows the raw file:// path.
+        switch locationManager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            decisionHandler(.grant)
+        default:
+            decisionHandler(.prompt)
+        }
     }
 }
 
