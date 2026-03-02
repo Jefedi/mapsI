@@ -1,0 +1,86 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ master, 'claude/**' ]
+    paths:
+      - 'MapsI/**'
+      - '.github/workflows/build-ios.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'MapsI/**'
+  workflow_dispatch:
+
+env:
+  PROJECT_PATH: MapsI/MapsI.xcodeproj
+  SCHEME: MapsI
+  CONFIGURATION: Release
+  DESTINATION: 'generic/platform=iOS'
+
+jobs:
+  build:
+    name: Build IPA
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Resolve dependencies
+        run: xcodebuild -resolvePackageDependencies -project "$PROJECT_PATH" -scheme "$SCHEME"
+        continue-on-error: true
+
+      - name: Build archive
+        run: |
+          xcodebuild archive \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -destination "$DESTINATION" \
+            -archivePath "$RUNNER_TEMP/MapsI.xcarchive" \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            -allowProvisioningUpdates \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            | xcpretty || true
+
+      - name: Create IPA from archive
+        run: |
+          # Create Payload directory
+          mkdir -p "$RUNNER_TEMP/Payload"
+
+          # Copy .app from archive to Payload
+          cp -r "$RUNNER_TEMP/MapsI.xcarchive/Products/Applications/MapsI.app" "$RUNNER_TEMP/Payload/"
+
+          # Create IPA (zip of Payload)
+          cd "$RUNNER_TEMP"
+          zip -r -9 MapsI.ipa Payload
+
+          echo "IPA size: $(du -h MapsI.ipa | cut -f1)"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MapsI-${{ github.sha }}
+          path: ${{ runner.temp }}/MapsI.ipa
+          retention-days: 30
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: MapsI-archive-${{ github.sha }}
+          path: ${{ runner.temp }}/MapsI.xcarchive
+          retention-days: 14
