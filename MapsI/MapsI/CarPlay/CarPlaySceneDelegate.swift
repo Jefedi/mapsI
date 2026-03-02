@@ -98,7 +98,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         guard let mapTemplate = mapTemplate else { return }
 
         let routeChoice = CPRouteChoice(
-            summariesVariants: ["Itineraire"],
+            summaryVariants: ["Itineraire"],
             additionalInformationVariants: [""],
             selectionSummaryVariants: [""]
         )
@@ -111,7 +111,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         currentTrip = trip
 
         let session = mapTemplate.startNavigationSession(for: trip)
-        session.pauseTrip(for: .loading, description: "Chargement...")
+        session.pauseTrip(for: CPTripPauseReason.loading, description: "Chargement...")
         navigationSession = session
     }
 
@@ -144,9 +144,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
                 distanceRemaining: totalDist,
                 timeRemaining: timeRemaining
             )
-            if let trip = currentTrip {
-                session.updateEstimates(estimates, for: trip)
-            }
+            session.updateEstimates(estimates, for: maneuver)
         }
     }
 
