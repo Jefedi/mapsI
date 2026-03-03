@@ -34,6 +34,9 @@
     const RADAR_ALERT_DISTANCE = 500;
     const WEATHER_UPDATE_INTERVAL = 900000; // 15 min
 
+    // Native bridge detection
+    const isNativeApp = !!(window.mapsiNative || window.webkit?.messageHandlers?.mapsiNative);
+
     const MAP_TILES = {
         standard: { url: '/tiles/styles/osm-bright/{z}/{x}/{y}.png', attr: '&copy; OpenMapTiles &copy; OSM', maxZoom: 19 },
         clair: { url: '/tiles/styles/positron/{z}/{x}/{y}.png', attr: '&copy; OpenMapTiles &copy; OSM', maxZoom: 20 },
@@ -1304,6 +1307,12 @@
                 });
             }
             fetchElevationProfile(allRoutes[0].geometry.coordinates);
+            // Notify native bridge
+            notifyNative('routeCalculated', {
+                distance: formatDistance(allRoutes[0].distance),
+                duration: formatDuration(allRoutes[0].duration),
+                eta: calculateETA(allRoutes[0].duration)
+            });
         } catch (err) {
             if (err.name === 'AbortError') return;
             hideLoading(); showToast('Erreur de calcul du trajet', 'error'); console.warn('Route error:', err);
@@ -1397,6 +1406,8 @@
     // ===== ACTIVE NAVIGATION =====
     function startNavigation() {
         isNavigating = true; currentStepIndex = 0; lastSpokenStep = -1; lastMatchedSegmentIndex = 0; snappedPosition = null;
+        notifyNative('navigationStarted', {});
+        notifyNative('requestAlwaysLocation', {});
         $navPanel.classList.add('hidden'); $transportModes.classList.add('hidden'); $routeAlternatives.classList.add('hidden');
         $activeNav.classList.remove('hidden'); $activeNavBottom.classList.remove('hidden'); $locateBtn.classList.add('nav-hidden');
         document.body.classList.add('navigating');
@@ -1412,6 +1423,8 @@
 
     function stopNavigation() {
         isNavigating = false; lastMatchedSegmentIndex = 0; snappedPosition = null;
+        notifyNative('navigationStopped', {});
+        notifyNative('stopBackgroundLocation', {});
         resetMapBearing();
         $activeNav.classList.add('hidden'); $activeNavBottom.classList.add('hidden'); $speedDisplay.classList.add('hidden'); $speedLimit.classList.add('hidden');
         $elevationProfile.classList.add('hidden');
@@ -1499,6 +1512,17 @@
         $activeNavIcon.innerHTML = getManeuverSVG(step.maneuver.type, step.maneuver.modifier);
         $activeNavStreet.textContent = step.name || 'Route';
         $activeNavDistance.textContent = formatDistance(step.distance);
+        // Push to CarPlay
+        notifyNative('navigationUpdate', {
+            instruction: translateManeuver(step.maneuver.type, step.maneuver.modifier, step.name),
+            distance: formatDistance(step.distance),
+            street: step.name || 'Route',
+            maneuverType: step.maneuver.type + (step.maneuver.modifier ? '-' + step.maneuver.modifier : ''),
+            remainingDistance: $remainingDistance?.textContent || '',
+            remainingTime: $remainingTime?.textContent || '',
+            eta: $etaTime?.textContent || '',
+            speed: parseInt($speedValue?.textContent) || 0
+        });
     }
 
     function getManeuverSVG(type, modifier) {
@@ -2451,6 +2475,49 @@
         });
         if ($optimizeWaypointsBtn) $optimizeWaypointsBtn.addEventListener('click', optimizeWaypointOrder);
     }
+
+    // ===== iOS NATIVE BRIDGE =====
+    function notifyNative(action, data) {
+        if (window.webkit?.messageHandlers?.mapsiNative) {
+            window.webkit.messageHandlers.mapsiNative.postMessage({ action, ...data });
+        }
+    }
+
+    // CarPlay search callback
+    window.mapsiCarPlaySearch = function(query) {
+        searchAddress(query).then(() => {
+            const items = [];
+            $searchResults.querySelectorAll('.search-result-item').forEach(el => {
+                items.push({
+                    name: el.dataset.name,
+                    address: el.dataset.address,
+                    lat: parseFloat(el.dataset.lat),
+                    lon: parseFloat(el.dataset.lon)
+                });
+            });
+            notifyNative('searchResults', { results: items });
+        });
+    };
+
+    window.mapsiCarPlaySelectDestination = function(lat, lon, name) {
+        switchView('map');
+        setDestination(lat, lon, name);
+        $searchInput.value = name;
+        $searchClear.classList.remove('hidden');
+        addToHistory({ name, address: '', lat, lon });
+    };
+
+    window.mapsiCarPlayStartNavigation = function() {
+        if (routeData) startNavigation();
+    };
+
+    window.mapsiCarPlayStopNavigation = function() {
+        if (isNavigating) stopNavigation();
+    };
+
+    window.mapsiCarPlayGetFavorites = function() {
+        notifyNative('favorites', { favorites: favorites });
+    };
 
     // ===== EVENT LISTENERS =====
     $searchInput.addEventListener('input', e => {

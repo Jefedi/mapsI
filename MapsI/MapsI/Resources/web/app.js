@@ -2423,11 +2423,6 @@
         notifyNative('favorites', { favorites: favorites });
     };
 
-    // Override startNavigation to notify native
-    const _originalStartNavigation = startNavigation;
-    // Augment navigation update to push to native bridge
-    const _originalUpdateNavigation = updateNavigation;
-
     // ===== EVENT LISTENERS =====
     $searchInput.addEventListener('input', e => {
         const val = e.target.value.trim();
